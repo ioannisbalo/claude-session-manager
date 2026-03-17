@@ -14,6 +14,7 @@ A desktop app for managing multiple [Claude Code](https://docs.anthropic.com/en/
   - **Red** — session exited
 - Native macOS notifications when a background session finishes or needs input
 - Full terminal emulation via xterm.js
+- Rename sessions via the edit button (✎) in the sidebar header
 - Keyboard shortcuts for fast navigation
 - Path validation to prevent opening broad directories (`/`, `~`, etc.)
 

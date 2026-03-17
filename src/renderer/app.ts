@@ -22,6 +22,11 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   document.getElementById('new-session-btn')!.addEventListener('click', createNewSession);
+  document.getElementById('rename-session-btn')!.addEventListener('click', () => {
+    if (!activeSessionId) return;
+    const nameSpan = document.querySelector(`#session-list li.active .session-name`) as HTMLSpanElement | null;
+    if (nameSpan) startRename(activeSessionId, nameSpan);
+  });
   window.api.onNewSession(createNewSession);
   window.api.onSwitchSession((sessionId: string) => {
     if (sessions.has(sessionId)) switchToSession(sessionId);
@@ -79,7 +84,45 @@ document.addEventListener('DOMContentLoaded', () => {
     renderSidebar();
   }
 
+  function startRename(sessionId: string, nameSpan: HTMLSpanElement): void {
+    const session = sessions.get(sessionId);
+    if (!session) return;
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'session-rename-input';
+    input.value = session.name;
+
+    const commit = () => {
+      const newName = input.value.trim();
+      if (newName && newName !== session.name) {
+        session.name = newName;
+      }
+      renderSidebar();
+    };
+
+    input.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        commit();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        renderSidebar();
+      }
+    });
+
+    input.addEventListener('blur', commit);
+
+    nameSpan.textContent = '';
+    nameSpan.appendChild(input);
+    input.focus();
+    input.select();
+  }
+
   function renderSidebar(): void {
+    const renameBtn = document.getElementById('rename-session-btn')!;
+    renameBtn.style.display = activeSessionId ? 'inline-block' : 'none';
+
     const list = document.getElementById('session-list')!;
     list.innerHTML = '';
 
@@ -94,6 +137,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       li.addEventListener('click', (e: MouseEvent) => {
         if ((e.target as HTMLElement).classList.contains('session-close')) return;
+        if ((e.target as HTMLElement).classList.contains('session-rename-input')) return;
         switchToSession(id);
       });
 

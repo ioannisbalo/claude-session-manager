@@ -47,6 +47,26 @@ html, body {
 #sidebar-header {
   padding: 42px 16px 12px;
   border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+#rename-session-btn {
+  display: none;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  -webkit-app-region: no-drag;
+  transition: color 0.15s;
+}
+
+#rename-session-btn:hover {
+  color: var(--accent);
 }
 
 .sidebar-title {
@@ -118,6 +138,18 @@ html, body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.session-rename-input {
+  background: var(--bg-primary);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  padding: 1px 4px;
+  width: 100%;
+  outline: none;
 }
 
 .session-close {
