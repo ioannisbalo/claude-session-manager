@@ -43,6 +43,12 @@ class TerminalWrapper {
 
     this.fitAddon = new FitAddon.FitAddon();
     this.terminal.loadAddon(this.fitAddon);
+
+    const webLinksAddon = new WebLinksAddon.WebLinksAddon((_event: MouseEvent, url: string) => {
+      (window as any).api.openUrl(url);
+    });
+    this.terminal.loadAddon(webLinksAddon);
+
     this.terminal.open(container);
     this.fit();
 

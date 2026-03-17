@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, ipcMain, dialog, globalShortcut, IpcMainInvokeEvent, IpcMainEvent } from 'electron';
+import { app, BrowserWindow, Menu, ipcMain, dialog, shell, globalShortcut, IpcMainInvokeEvent, IpcMainEvent } from 'electron';
 import os from 'os';
 import path from 'path';
 import SessionManager from './src/session-manager';
@@ -151,6 +151,12 @@ function createWindow(): void {
 
   ipcMain.handle('session:buffer', (_event: IpcMainInvokeEvent, sessionId: string) => {
     return sessionManager!.getBuffer(sessionId);
+  });
+
+  ipcMain.handle('open-url', (_event: IpcMainInvokeEvent, url: string) => {
+    if (url.startsWith('https://') || url.startsWith('http://')) {
+      shell.openExternal(url);
+    }
   });
 }
 

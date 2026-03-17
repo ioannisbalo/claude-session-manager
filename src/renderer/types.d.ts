@@ -19,6 +19,12 @@ declare namespace FitAddon {
   }
 }
 
+declare namespace WebLinksAddon {
+  class WebLinksAddon {
+    constructor(handler?: (event: MouseEvent, url: string) => void);
+  }
+}
+
 // Preload API exposed via contextBridge
 interface SessionInfo {
   id: string;
@@ -42,6 +48,7 @@ interface ElectronAPI {
   onExit(callback: (id: string, code: number) => void): void;
   onNewSession(callback: () => void): void;
   onSwitchSession(callback: (id: string) => void): void;
+  openUrl(url: string): Promise<void>;
 }
 
 interface Window {

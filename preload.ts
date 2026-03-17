@@ -26,4 +26,6 @@ contextBridge.exposeInMainWorld('api', {
   onSwitchSession: (callback: (id: string) => void): void => {
     ipcRenderer.on('switch-session', (_, id) => callback(id));
   },
+
+  openUrl: (url: string): Promise<void> => ipcRenderer.invoke('open-url', url),
 });
