@@ -1,11 +1,16 @@
-import { BrowserWindow, Notification } from 'electron';
+import path from 'path';
+import { BrowserWindow, Notification, nativeImage } from 'electron';
 import SessionManager from './session-manager';
 
 class NotificationService {
   private activeSessionId: string | null = null;
   private windowFocused: boolean = true;
+  private readonly icon: Electron.NativeImage;
 
   constructor(sessionManager: SessionManager, window: BrowserWindow) {
+    this.icon = nativeImage.createFromPath(
+      path.join(__dirname, '..', 'assets', 'icon.png'),
+    );
     sessionManager.on('state-change', (sessionId: string, state: string) => {
       // Skip if this is the active session and the window is focused
       if (sessionId === this.activeSessionId && this.windowFocused) return;
@@ -27,6 +32,7 @@ class NotificationService {
           silent: true,
           title: 'Claude Session Manager',
           body,
+          icon: this.icon,
         });
 
         notification.on('click', () => {

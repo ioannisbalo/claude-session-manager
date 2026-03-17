@@ -65,7 +65,7 @@ class StateDetector {
     const stripped = this.stripAnsi(this.recentOutput);
     const lastLines = stripped.split('\n').slice(-6);
 
-    if (lastLines.some(line => this.isMainPrompt(line))) {
+    if (lastLines.some(line => this.isMainPrompt(line) || this.isCompletionStatus(line))) {
       this.recentOutput = '';
       this.currentState = 'idle';
       this.onStateChange('idle');
@@ -80,6 +80,12 @@ class StateDetector {
   private isMainPrompt(line: string): boolean {
     const trimmed = line.trim();
     return /^[❯]\s*$/.test(trimmed) || /^[❯]\s+\S/.test(trimmed);
+  }
+
+  /** Claude Code status line indicating task completion (e.g. "✻ Crunched for 55s") */
+  private isCompletionStatus(line: string): boolean {
+    const trimmed = line.trim();
+    return /^✻\s+\S+.*\bfor\b\s+\d/.test(trimmed);
   }
 
   /** Mid-task prompt — Claude needs confirmation/selection */
