@@ -65,14 +65,20 @@ class StateDetector {
     const stripped = this.stripAnsi(this.recentOutput);
     const lastLines = stripped.split('\n').slice(-6);
 
-    if (lastLines.some(line => this.isMainPrompt(line) || this.isCompletionStatus(line))) {
-      this.recentOutput = '';
-      this.currentState = 'idle';
-      this.onStateChange('idle');
-    } else if (lastLines.some(line => this.isInputPrompt(line))) {
+    const hasInputPrompt = lastLines.some(line => this.isInputPrompt(line));
+
+    if (hasInputPrompt) {
+      // Input prompts take highest priority — numbered choices, y/n, etc.
       this.recentOutput = '';
       this.currentState = 'needs-input';
       this.onStateChange('needs-input');
+    } else if (lastLines.some(line => this.isMainPrompt(line) || this.isCompletionStatus(line) || this.isIdleHint(line))) {
+      this.recentOutput = '';
+      this.currentState = 'idle';
+      this.onStateChange('idle');
+    } else if (lastLines.some(line => this.isWorkingHint(line))) {
+      // Confirmed still working — don't change state, just clear buffer
+      this.recentOutput = '';
     }
   }
 
@@ -88,6 +94,21 @@ class StateDetector {
     return /^✻\s+\S+.*\bfor\b\s+\d/.test(trimmed);
   }
 
+  /** Claude Code idle hints — appear when Claude is at the main prompt */
+  private isIdleHint(line: string): boolean {
+    const trimmed = line.trim();
+    return /\?\s+for shortcuts\b/.test(trimmed)
+      || /\bTab to amend\b/.test(trimmed)
+      || /\bctrl\+e to explain\b/.test(trimmed)
+      || /\bplan mode\b/i.test(trimmed);
+  }
+
+  /** Claude Code working hints — appear while Claude is generating */
+  private isWorkingHint(line: string): boolean {
+    const trimmed = line.trim();
+    return /\bEsc to (cancel|interrupt)\b/.test(trimmed);
+  }
+
   /** Mid-task prompt — Claude needs confirmation/selection */
   private isInputPrompt(line: string): boolean {
     const trimmed = line.trim();
@@ -95,12 +116,13 @@ class StateDetector {
       /\(y\/n\)\s*$/i,           // yes/no prompt
       /\(Y\)es\b/,               // Yes/No confirmation
       /\byes\/no\b/i,            // yes/no text
-      /\baccept\b/i,             // accept edit prompts
-      /\breject\b/i,             // reject edit prompts
-      /\ballow\b/i,              // permission prompts
-      /\bdeny\b/i,               // permission prompts
       /^>\s*$/,                  // generic > prompt (not ❯)
-      /\?\s*$/,                  // ends with ?
+      /^[›❯>]\s*\d+\.\s/,       // numbered choice list (› 1. Yes)
+      /^\d+\.\s+(Yes|No)\b/,    // numbered Yes/No options
+      /Do you want to/i,         // "Do you want to make this edit..."
+      /Would you like to proceed/i,  // plan execution confirmation
+      /ctrl-g to edit in Vim/i,      // plan confirmation hint line
+      /Type here to tell Claude/i,   // plan revision option
     ];
 
     return patterns.some(pattern => pattern.test(trimmed));

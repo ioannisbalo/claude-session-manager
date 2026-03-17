@@ -33,12 +33,18 @@ class SessionManager extends EventEmitter {
     const id = String(nextId++);
     const name = path.basename(cwd);
 
+    const env: Record<string, string> = {
+      ...process.env as Record<string, string>,
+      PATH: shellPath,
+      TERM: 'xterm-256color',
+    };
+
     const ptyProcess = pty.spawn('claude', [], {
       name: 'xterm-256color',
       cols: 120,
       rows: 30,
       cwd,
-      env: { ...process.env, PATH: shellPath, TERM: 'xterm-256color' } as Record<string, string>,
+      env,
     });
 
     const stateDetector = new StateDetector((newState: SessionState) => {
