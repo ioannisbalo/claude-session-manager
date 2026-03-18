@@ -73,7 +73,7 @@ function createWindow(): void {
 
   const win = mainWindow;
 
-  sessionManager = new SessionManager();
+  sessionManager = new SessionManager(app.getPath('userData'));
   const notificationService = new NotificationService(sessionManager, win);
 
   sessionManager.on('output', (sessionId: string, data: string) => {
@@ -155,6 +155,14 @@ function createWindow(): void {
     if (url.startsWith('https://') || url.startsWith('http://')) {
       shell.openExternal(url);
     }
+  });
+
+  ipcMain.handle('session:correct-state', (_event: IpcMainInvokeEvent, sessionId: string, correctState: string) => {
+    sessionManager!.correctState(sessionId, correctState as any);
+  });
+
+  ipcMain.handle('session:log-path', () => {
+    return sessionManager!.getTransitionLogPath();
   });
 }
 

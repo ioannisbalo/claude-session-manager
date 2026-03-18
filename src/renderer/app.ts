@@ -119,6 +119,52 @@ document.addEventListener('DOMContentLoaded', () => {
     input.select();
   }
 
+  function showCorrectionDropdown(dot: HTMLElement, sessionId: string, currentStatus: SessionStatus): void {
+    // Remove any existing dropdown
+    document.querySelector('.correction-dropdown')?.remove();
+
+    const allStates: SessionStatus[] = ['idle', 'working', 'needs-input', 'done'];
+    const options = allStates.filter(s => s !== currentStatus);
+
+    const dropdown = document.createElement('div');
+    dropdown.className = 'correction-dropdown';
+
+    const label = document.createElement('div');
+    label.className = 'correction-label';
+    label.textContent = `Showing: ${currentStatus}`;
+    dropdown.appendChild(label);
+
+    for (const state of options) {
+      const btn = document.createElement('button');
+      btn.className = `correction-option ${state}`;
+      btn.textContent = state;
+      btn.addEventListener('click', (e: MouseEvent) => {
+        e.stopPropagation();
+        window.api.correctState(sessionId, state);
+        const session = sessions.get(sessionId);
+        if (session) session.status = state;
+        dropdown.remove();
+        renderSidebar();
+      });
+      dropdown.appendChild(btn);
+    }
+
+    // Position relative to the dot
+    const rect = dot.getBoundingClientRect();
+    dropdown.style.left = `${rect.right + 8}px`;
+    dropdown.style.top = `${rect.top - 4}px`;
+    document.body.appendChild(dropdown);
+
+    // Close on outside click
+    const close = (e: MouseEvent) => {
+      if (!dropdown.contains(e.target as Node)) {
+        dropdown.remove();
+        document.removeEventListener('click', close);
+      }
+    };
+    setTimeout(() => document.addEventListener('click', close), 0);
+  }
+
   function renderSidebar(): void {
     const renameBtn = document.getElementById('rename-session-btn')!;
     renameBtn.style.display = activeSessionId ? 'inline-block' : 'none';
@@ -135,9 +181,16 @@ document.addEventListener('DOMContentLoaded', () => {
         <button class="session-close" title="Close session">&times;</button>
       `;
 
+      const statusDot = li.querySelector('.status-dot') as HTMLElement;
+      statusDot.addEventListener('click', (e: MouseEvent) => {
+        e.stopPropagation();
+        showCorrectionDropdown(e.target as HTMLElement, id, session.status);
+      });
+
       li.addEventListener('click', (e: MouseEvent) => {
         if ((e.target as HTMLElement).classList.contains('session-close')) return;
         if ((e.target as HTMLElement).classList.contains('session-rename-input')) return;
+        if ((e.target as HTMLElement).classList.contains('status-dot')) return;
         switchToSession(id);
       });
 

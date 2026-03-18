@@ -3,6 +3,7 @@ import { execSync } from 'child_process';
 import path from 'path';
 import * as pty from 'node-pty';
 import StateDetector, { SessionState } from './state-detector';
+import TransitionLogger from './transition-logger';
 
 function resolveShellPath(): string {
   try {
@@ -28,6 +29,12 @@ let nextId = 1;
 
 class SessionManager extends EventEmitter {
   sessions: Map<string, Session> = new Map();
+  private transitionLogger: TransitionLogger;
+
+  constructor(userDataPath: string) {
+    super();
+    this.transitionLogger = new TransitionLogger(userDataPath);
+  }
 
   createSession(cwd: string): Session {
     const id = String(nextId++);
@@ -47,12 +54,27 @@ class SessionManager extends EventEmitter {
       env,
     });
 
-    const stateDetector = new StateDetector((newState: SessionState) => {
-      if (newState !== session.status) {
-        session.status = newState;
-        this.emit('state-change', id, newState);
-      }
-    });
+    const stateDetector = new StateDetector(
+      (newState: SessionState) => {
+        if (newState !== session.status) {
+          session.status = newState;
+          this.emit('state-change', id, newState);
+        }
+      },
+      (detail) => {
+        // Log all non-working transitions
+        this.transitionLogger.log({
+          timestamp: new Date().toISOString(),
+          sessionId: id,
+          sessionName: session.name,
+          from: detail.from,
+          to: detail.to,
+          linesExamined: detail.linesExamined,
+          matchedPattern: detail.matchedPattern,
+          trigger: detail.trigger,
+        });
+      },
+    );
 
     const session: Session = {
       id,
@@ -106,6 +128,21 @@ class SessionManager extends EventEmitter {
 
   getSessions(): Session[] {
     return Array.from(this.sessions.values());
+  }
+
+  correctState(id: string, correctState: SessionState): void {
+    const session = this.sessions.get(id);
+    if (!session) return;
+
+    const wrongState = session.status;
+    this.transitionLogger.logCorrection(id, session.name, wrongState, correctState);
+
+    session.status = correctState;
+    this.emit('state-change', id, correctState);
+  }
+
+  getTransitionLogPath(): string {
+    return this.transitionLogger.getLogPath();
   }
 
   killSession(id: string): void {
