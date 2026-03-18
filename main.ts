@@ -1,8 +1,11 @@
 import { app, BrowserWindow, Menu, ipcMain, dialog, shell, globalShortcut, IpcMainInvokeEvent, IpcMainEvent } from 'electron';
 import os from 'os';
+import fs from 'fs';
 import path from 'path';
 import SessionManager from './src/session-manager';
 import NotificationService from './src/notification';
+
+const STATE_FILE = 'session-state.json';
 
 app.name = 'Claude Session Manager';
 
@@ -71,21 +74,25 @@ function createWindow(): void {
 
   mainWindow.loadFile(path.join(__dirname, 'src', 'renderer', 'index.html'));
 
+  mainWindow.once('ready-to-show', () => {
+    mainWindow?.show();
+  });
+
   const win = mainWindow;
 
   sessionManager = new SessionManager(app.getPath('userData'));
   const notificationService = new NotificationService(sessionManager, win);
 
   sessionManager.on('output', (sessionId: string, data: string) => {
-    win.webContents.send('session:output', sessionId, data);
+    if (!win.isDestroyed()) win.webContents.send('session:output', sessionId, data);
   });
 
   sessionManager.on('state-change', (sessionId: string, state: string) => {
-    win.webContents.send('session:state', sessionId, state);
+    if (!win.isDestroyed()) win.webContents.send('session:state', sessionId, state);
   });
 
   sessionManager.on('exit', (sessionId: string, exitCode: number) => {
-    win.webContents.send('session:exit', sessionId, exitCode);
+    if (!win.isDestroyed()) win.webContents.send('session:exit', sessionId, exitCode);
   });
 
   // Cmd+N shortcut to create new session
@@ -164,6 +171,45 @@ function createWindow(): void {
   ipcMain.handle('session:log-path', () => {
     return sessionManager!.getTransitionLogPath();
   });
+
+  // Create session at a specific cwd (no directory picker)
+  ipcMain.handle('session:create-at', (_event: IpcMainInvokeEvent, cwd: string) => {
+    if (!fs.existsSync(cwd)) return null;
+    const session = sessionManager!.createSession(cwd);
+    return { id: session.id, name: session.name, cwd: session.cwd, status: session.status };
+  });
+
+  // State persistence
+  const statePath = path.join(app.getPath('userData'), STATE_FILE);
+
+  ipcMain.handle('state:save', (_event: IpcMainInvokeEvent, state: string) => {
+    fs.writeFileSync(statePath, state, 'utf-8');
+  });
+
+  ipcMain.handle('state:load', async () => {
+    if (!fs.existsSync(statePath)) return null;
+
+    const { response } = await dialog.showMessageBox(win, {
+      type: 'question',
+      buttons: ['Restore Sessions', 'Start Fresh'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'Restore Previous Sessions',
+      message: 'A previous session layout was found.',
+      detail: 'Would you like to restore your previous sessions and groups?',
+    });
+
+    if (response !== 0) {
+      fs.unlinkSync(statePath);
+      return null;
+    }
+
+    try {
+      return fs.readFileSync(statePath, 'utf-8');
+    } catch {
+      return null;
+    }
+  });
 }
 
 app.whenReady().then(() => {
@@ -171,6 +217,12 @@ app.whenReady().then(() => {
     app.dock?.setIcon(path.join(__dirname, '..', 'assets', 'icon.png'));
   }
   createWindow();
+});
+
+app.on('before-quit', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('app:before-quit');
+  }
 });
 
 app.on('window-all-closed', () => {

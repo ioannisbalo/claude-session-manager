@@ -31,4 +31,11 @@ contextBridge.exposeInMainWorld('api', {
   correctState: (id: string, correctState: string): Promise<void> =>
     ipcRenderer.invoke('session:correct-state', id, correctState),
   getLogPath: (): Promise<string> => ipcRenderer.invoke('session:log-path'),
+
+  createSessionAt: (cwd: string): Promise<unknown> => ipcRenderer.invoke('session:create-at', cwd),
+  saveState: (state: string): Promise<void> => ipcRenderer.invoke('state:save', state),
+  loadState: (): Promise<string | null> => ipcRenderer.invoke('state:load'),
+  onBeforeQuit: (callback: () => void): void => {
+    ipcRenderer.on('app:before-quit', () => callback());
+  },
 });

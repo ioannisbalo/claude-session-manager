@@ -51,6 +51,10 @@ interface ElectronAPI {
   openUrl(url: string): Promise<void>;
   correctState(id: string, correctState: string): Promise<void>;
   getLogPath(): Promise<string>;
+  createSessionAt(cwd: string): Promise<SessionInfo | null>;
+  saveState(state: string): Promise<void>;
+  loadState(): Promise<string | null>;
+  onBeforeQuit(callback: () => void): void;
 }
 
 interface Window {
@@ -62,6 +66,13 @@ interface SessionGroup {
   name: string;
   sessionIds: string[];
   collapsed: boolean;
+}
+
+interface SavedState {
+  sessions: Array<{ id: string; name: string; cwd: string }>;
+  groups: SessionGroup[];
+  sidebarOrder: Array<{ type: 'session'; id: string } | { type: 'group'; id: string }>;
+  groupCounter: number;
 }
 
 // TerminalWrapper is declared in terminal.ts and loaded via script tag before app.ts

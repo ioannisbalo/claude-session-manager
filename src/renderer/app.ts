@@ -2,67 +2,6 @@ let terminalWrapper: TerminalWrapper;
 let activeSessionId: string | null = null;
 const sessions = new Map<string, SessionInfo>();
 
-// Group state
-const groups = new Map<string, SessionGroup>();
-let groupCounter = 0;
-let dragInProgress = false;
-type SidebarEntry = { type: 'session'; id: string } | { type: 'group'; id: string };
-let sidebarOrder: SidebarEntry[] = [];
-
-function getGroupForSession(sessionId: string): SessionGroup | undefined {
-  for (const group of groups.values()) {
-    if (group.sessionIds.includes(sessionId)) return group;
-  }
-  return undefined;
-}
-
-function enforceGroupIntegrity(): void {
-  for (const [groupId, group] of groups) {
-    // Remove session IDs that no longer exist
-    group.sessionIds = group.sessionIds.filter(id => sessions.has(id));
-
-    if (group.sessionIds.length <= 1) {
-      const remainingId = group.sessionIds[0];
-      const idx = sidebarOrder.findIndex(e => e.type === 'group' && e.id === groupId);
-      if (idx !== -1) {
-        if (remainingId) {
-          sidebarOrder[idx] = { type: 'session', id: remainingId };
-        } else {
-          sidebarOrder.splice(idx, 1);
-        }
-      }
-      groups.delete(groupId);
-    }
-  }
-}
-
-function getVisibleSessionOrder(): string[] {
-  const result: string[] = [];
-  for (const entry of sidebarOrder) {
-    if (entry.type === 'session') {
-      if (sessions.has(entry.id)) result.push(entry.id);
-    } else {
-      const group = groups.get(entry.id);
-      if (group) {
-        for (const sid of group.sessionIds) {
-          if (sessions.has(sid)) result.push(sid);
-        }
-      }
-    }
-  }
-  return result;
-}
-
-function removeSidebarEntry(sessionId: string): void {
-  // Remove from sidebarOrder if standalone
-  sidebarOrder = sidebarOrder.filter(e => !(e.type === 'session' && e.id === sessionId));
-  // Remove from any group
-  const group = getGroupForSession(sessionId);
-  if (group) {
-    group.sessionIds = group.sessionIds.filter(id => id !== sessionId);
-  }
-}
-
 document.addEventListener('DOMContentLoaded', () => {
   const terminalPanel = document.getElementById('terminal-panel')!;
   const emptyState = document.getElementById('empty-state')!;
@@ -81,7 +20,24 @@ document.addEventListener('DOMContentLoaded', () => {
     sidebarOrder.push({ type: 'session', id: session.id });
     renderSidebar();
     switchToSession(session.id);
+    scheduleSave();
   }
+
+  // Attempt to restore previous state on startup
+  restoreState().then((restored) => {
+    if (restored) {
+      renderSidebar();
+      const firstId = getVisibleSessionOrder()[0];
+      if (firstId) switchToSession(firstId);
+    }
+  });
+
+  // Save state before app quits
+  window.api.onBeforeQuit(() => {
+    if (sessions.size > 0) {
+      window.api.saveState(buildSavedState());
+    }
+  });
 
   document.getElementById('new-session-btn')!.addEventListener('click', createNewSession);
   document.getElementById('rename-session-btn')!.addEventListener('click', () => {
@@ -159,6 +115,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const newName = input.value.trim();
       if (newName && newName !== session.name) {
         session.name = newName;
+        scheduleSave();
       }
       renderSidebar();
     };
@@ -191,6 +148,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const newName = input.value.trim();
       if (newName && newName !== group.name) {
         group.name = newName;
+        scheduleSave();
       }
       renderSidebar();
     };
@@ -346,6 +304,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     enforceGroupIntegrity();
     renderSidebar();
+    scheduleSave();
   }
 
   // --- Session <li> creation ---
@@ -389,6 +348,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       renderSidebar();
+      scheduleSave();
     });
 
     // Drag events
@@ -475,6 +435,7 @@ document.addEventListener('DOMContentLoaded', () => {
           if ((e.target as HTMLElement).classList.contains('session-rename-input')) return;
           group.collapsed = !group.collapsed;
           renderSidebar();
+          scheduleSave();
         });
 
         // Group header drag events (accept drops)
@@ -535,6 +496,7 @@ document.addEventListener('DOMContentLoaded', () => {
       enforceGroupIntegrity();
       sidebarOrder.push({ type: 'session', id: draggedId });
       renderSidebar();
+      scheduleSave();
     };
   }
 });
