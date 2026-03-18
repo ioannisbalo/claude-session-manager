@@ -2,6 +2,67 @@ let terminalWrapper: TerminalWrapper;
 let activeSessionId: string | null = null;
 const sessions = new Map<string, SessionInfo>();
 
+// Group state
+const groups = new Map<string, SessionGroup>();
+let groupCounter = 0;
+let dragInProgress = false;
+type SidebarEntry = { type: 'session'; id: string } | { type: 'group'; id: string };
+let sidebarOrder: SidebarEntry[] = [];
+
+function getGroupForSession(sessionId: string): SessionGroup | undefined {
+  for (const group of groups.values()) {
+    if (group.sessionIds.includes(sessionId)) return group;
+  }
+  return undefined;
+}
+
+function enforceGroupIntegrity(): void {
+  for (const [groupId, group] of groups) {
+    // Remove session IDs that no longer exist
+    group.sessionIds = group.sessionIds.filter(id => sessions.has(id));
+
+    if (group.sessionIds.length <= 1) {
+      const remainingId = group.sessionIds[0];
+      const idx = sidebarOrder.findIndex(e => e.type === 'group' && e.id === groupId);
+      if (idx !== -1) {
+        if (remainingId) {
+          sidebarOrder[idx] = { type: 'session', id: remainingId };
+        } else {
+          sidebarOrder.splice(idx, 1);
+        }
+      }
+      groups.delete(groupId);
+    }
+  }
+}
+
+function getVisibleSessionOrder(): string[] {
+  const result: string[] = [];
+  for (const entry of sidebarOrder) {
+    if (entry.type === 'session') {
+      if (sessions.has(entry.id)) result.push(entry.id);
+    } else {
+      const group = groups.get(entry.id);
+      if (group) {
+        for (const sid of group.sessionIds) {
+          if (sessions.has(sid)) result.push(sid);
+        }
+      }
+    }
+  }
+  return result;
+}
+
+function removeSidebarEntry(sessionId: string): void {
+  // Remove from sidebarOrder if standalone
+  sidebarOrder = sidebarOrder.filter(e => !(e.type === 'session' && e.id === sessionId));
+  // Remove from any group
+  const group = getGroupForSession(sessionId);
+  if (group) {
+    group.sessionIds = group.sessionIds.filter(id => id !== sessionId);
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   const terminalPanel = document.getElementById('terminal-panel')!;
   const emptyState = document.getElementById('empty-state')!;
@@ -17,6 +78,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!session) return;
 
     sessions.set(session.id, session);
+    sidebarOrder.push({ type: 'session', id: session.id });
     renderSidebar();
     switchToSession(session.id);
   }
@@ -57,7 +119,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.addEventListener('keydown', (e: KeyboardEvent) => {
     if (e.metaKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
       e.preventDefault();
-      const ids = Array.from(sessions.keys());
+      const ids = getVisibleSessionOrder();
       if (ids.length < 2) return;
       const currentIndex = ids.indexOf(activeSessionId!);
       const next = e.key === 'ArrowDown'
@@ -119,8 +181,39 @@ document.addEventListener('DOMContentLoaded', () => {
     input.select();
   }
 
+  function startGroupRename(group: SessionGroup, nameSpan: HTMLSpanElement): void {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'session-rename-input';
+    input.value = group.name;
+
+    const commit = () => {
+      const newName = input.value.trim();
+      if (newName && newName !== group.name) {
+        group.name = newName;
+      }
+      renderSidebar();
+    };
+
+    input.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        commit();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        renderSidebar();
+      }
+    });
+
+    input.addEventListener('blur', commit);
+
+    nameSpan.textContent = '';
+    nameSpan.appendChild(input);
+    input.focus();
+    input.select();
+  }
+
   function showCorrectionDropdown(dot: HTMLElement, sessionId: string, currentStatus: SessionStatus): void {
-    // Remove any existing dropdown
     document.querySelector('.correction-dropdown')?.remove();
 
     const allStates: SessionStatus[] = ['idle', 'working', 'needs-input', 'done'];
@@ -149,13 +242,11 @@ document.addEventListener('DOMContentLoaded', () => {
       dropdown.appendChild(btn);
     }
 
-    // Position relative to the dot
     const rect = dot.getBoundingClientRect();
     dropdown.style.left = `${rect.right + 8}px`;
     dropdown.style.top = `${rect.top - 4}px`;
     document.body.appendChild(dropdown);
 
-    // Close on outside click
     const close = (e: MouseEvent) => {
       if (!dropdown.contains(e.target as Node)) {
         dropdown.remove();
@@ -165,51 +256,285 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => document.addEventListener('click', close), 0);
   }
 
+  // --- Drag-and-drop helpers ---
+
+  function clearDropIndicators(): void {
+    const list = document.getElementById('session-list')!;
+    list.querySelectorAll('.drop-target-merge, .drop-target-above, .drop-target-below').forEach(el => {
+      el.classList.remove('drop-target-merge', 'drop-target-above', 'drop-target-below');
+    });
+  }
+
+  function getDropZone(e: DragEvent, el: HTMLElement): 'above' | 'below' | 'merge' {
+    const rect = el.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    const ratio = y / rect.height;
+    if (ratio < 0.25) return 'above';
+    if (ratio > 0.75) return 'below';
+    return 'merge';
+  }
+
+  function handleDrop(draggedId: string, targetId: string, zone: 'above' | 'below' | 'merge', targetIsGroup: boolean): void {
+    if (draggedId === targetId) return;
+
+    if (zone === 'merge') {
+      if (targetIsGroup) {
+        // Drop onto group header — add to group
+        const group = groups.get(targetId);
+        if (!group) return;
+        if (group.sessionIds.includes(draggedId)) return;
+        removeSidebarEntry(draggedId);
+        enforceGroupIntegrity();
+        group.sessionIds.push(draggedId);
+      } else {
+        // Merge two sessions (or add to target's group)
+        const targetGroup = getGroupForSession(targetId);
+        if (targetGroup) {
+          if (targetGroup.sessionIds.includes(draggedId)) return;
+          removeSidebarEntry(draggedId);
+          enforceGroupIntegrity();
+          targetGroup.sessionIds.push(draggedId);
+        } else {
+          // Create new group — remove dragged from old location first
+          removeSidebarEntry(draggedId);
+          enforceGroupIntegrity();
+
+          groupCounter++;
+          const newGroup: SessionGroup = {
+            id: `group-${groupCounter}`,
+            name: `Group ${groupCounter}`,
+            sessionIds: [targetId, draggedId],
+            collapsed: false,
+          };
+          groups.set(newGroup.id, newGroup);
+
+          // Replace target's sidebarOrder entry with the group
+          const targetIdx = sidebarOrder.findIndex(e => e.type === 'session' && e.id === targetId);
+          if (targetIdx !== -1) {
+            sidebarOrder[targetIdx] = { type: 'group', id: newGroup.id };
+          }
+        }
+      }
+    } else {
+      // Reorder (above/below)
+      removeSidebarEntry(draggedId);
+      enforceGroupIntegrity();
+
+      if (targetIsGroup) {
+        const idx = sidebarOrder.findIndex(e => e.type === 'group' && e.id === targetId);
+        if (idx !== -1) {
+          const insertIdx = zone === 'above' ? idx : idx + 1;
+          sidebarOrder.splice(insertIdx, 0, { type: 'session', id: draggedId });
+        }
+      } else {
+        // Find target in sidebarOrder (could be standalone or inside a group)
+        const targetGroup = getGroupForSession(targetId);
+        if (targetGroup) {
+          // Insert into group at target position
+          const tIdx = targetGroup.sessionIds.indexOf(targetId);
+          const insertIdx = zone === 'above' ? tIdx : tIdx + 1;
+          targetGroup.sessionIds.splice(insertIdx, 0, draggedId);
+        } else {
+          const idx = sidebarOrder.findIndex(e => e.type === 'session' && e.id === targetId);
+          if (idx !== -1) {
+            const insertIdx = zone === 'above' ? idx : idx + 1;
+            sidebarOrder.splice(insertIdx, 0, { type: 'session', id: draggedId });
+          }
+        }
+      }
+    }
+
+    enforceGroupIntegrity();
+    renderSidebar();
+  }
+
+  // --- Session <li> creation ---
+
+  function createSessionLi(id: string, session: SessionInfo, indented: boolean): HTMLLIElement {
+    const li = document.createElement('li');
+    li.className = (id === activeSessionId ? 'active' : '') + (indented ? ' grouped-session' : '');
+    li.setAttribute('draggable', 'true');
+    li.dataset.sessionId = id;
+    li.innerHTML = `
+      <span class="status-dot ${session.status}"></span>
+      <span class="session-name" title="${session.cwd}">${session.name}</span>
+      <button class="session-close" title="Close session">&times;</button>
+    `;
+
+    const statusDot = li.querySelector('.status-dot') as HTMLElement;
+    statusDot.addEventListener('click', (e: MouseEvent) => {
+      e.stopPropagation();
+      showCorrectionDropdown(e.target as HTMLElement, id, session.status);
+    });
+
+    li.addEventListener('click', (e: MouseEvent) => {
+      if ((e.target as HTMLElement).classList.contains('session-close')) return;
+      if ((e.target as HTMLElement).classList.contains('session-rename-input')) return;
+      if ((e.target as HTMLElement).classList.contains('status-dot')) return;
+      switchToSession(id);
+    });
+
+    li.querySelector('.session-close')!.addEventListener('click', async () => {
+      await window.api.killSession(id);
+      sessions.delete(id);
+      removeSidebarEntry(id);
+      enforceGroupIntegrity();
+
+      if (activeSessionId === id) {
+        activeSessionId = null;
+        terminalPanel.classList.remove('visible');
+        emptyState.style.display = '';
+        const remaining = getVisibleSessionOrder();
+        if (remaining.length > 0) switchToSession(remaining[0]);
+      }
+
+      renderSidebar();
+    });
+
+    // Drag events
+    li.addEventListener('dragstart', (e: DragEvent) => {
+      e.dataTransfer!.setData('text/plain', id);
+      e.dataTransfer!.effectAllowed = 'move';
+      dragInProgress = true;
+      li.classList.add('dragging');
+    });
+
+    li.addEventListener('dragend', () => {
+      dragInProgress = false;
+      li.classList.remove('dragging');
+      clearDropIndicators();
+      renderSidebar();
+    });
+
+    li.addEventListener('dragover', (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      clearDropIndicators();
+      const zone = getDropZone(e, li);
+      if (zone === 'merge') li.classList.add('drop-target-merge');
+      else if (zone === 'above') li.classList.add('drop-target-above');
+      else li.classList.add('drop-target-below');
+    });
+
+    li.addEventListener('dragleave', () => {
+      li.classList.remove('drop-target-merge', 'drop-target-above', 'drop-target-below');
+    });
+
+    li.addEventListener('drop', (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      clearDropIndicators();
+      const draggedId = e.dataTransfer!.getData('text/plain');
+      if (!draggedId || !sessions.has(draggedId)) return;
+      const zone = getDropZone(e, li);
+      handleDrop(draggedId, id, zone, false);
+    });
+
+    return li;
+  }
+
+  // --- Render ---
+
   function renderSidebar(): void {
+    if (dragInProgress) return;
+
     const renameBtn = document.getElementById('rename-session-btn')!;
     renameBtn.style.display = activeSessionId ? 'inline-block' : 'none';
 
     const list = document.getElementById('session-list')!;
     list.innerHTML = '';
 
-    for (const [id, session] of sessions) {
-      const li = document.createElement('li');
-      li.className = id === activeSessionId ? 'active' : '';
-      li.innerHTML = `
-        <span class="status-dot ${session.status}"></span>
-        <span class="session-name" title="${session.cwd}">${session.name}</span>
-        <button class="session-close" title="Close session">&times;</button>
-      `;
+    for (const entry of sidebarOrder) {
+      if (entry.type === 'session') {
+        const session = sessions.get(entry.id);
+        if (!session) continue;
+        list.appendChild(createSessionLi(entry.id, session, false));
+      } else {
+        const group = groups.get(entry.id);
+        if (!group) continue;
 
-      const statusDot = li.querySelector('.status-dot') as HTMLElement;
-      statusDot.addEventListener('click', (e: MouseEvent) => {
-        e.stopPropagation();
-        showCorrectionDropdown(e.target as HTMLElement, id, session.status);
-      });
+        // Group header
+        const header = document.createElement('li');
+        header.className = 'session-group-header';
+        header.dataset.groupId = group.id;
+        header.innerHTML = `
+          <span class="group-collapse-icon">${group.collapsed ? '▸' : '▾'}</span>
+          <span class="group-name">${group.name}</span>
+          <button class="group-rename-btn" title="Rename group">✎</button>
+          <span class="group-count">${group.sessionIds.length}</span>
+        `;
 
-      li.addEventListener('click', (e: MouseEvent) => {
-        if ((e.target as HTMLElement).classList.contains('session-close')) return;
-        if ((e.target as HTMLElement).classList.contains('session-rename-input')) return;
-        if ((e.target as HTMLElement).classList.contains('status-dot')) return;
-        switchToSession(id);
-      });
+        (header.querySelector('.group-rename-btn') as HTMLElement).addEventListener('click', (e: MouseEvent) => {
+          e.stopPropagation();
+          const nameSpan = header.querySelector('.group-name') as HTMLSpanElement;
+          startGroupRename(group, nameSpan);
+        });
 
-      li.querySelector('.session-close')!.addEventListener('click', async () => {
-        await window.api.killSession(id);
-        sessions.delete(id);
+        header.addEventListener('click', (e: MouseEvent) => {
+          if ((e.target as HTMLElement).classList.contains('group-rename-btn')) return;
+          if ((e.target as HTMLElement).classList.contains('session-rename-input')) return;
+          group.collapsed = !group.collapsed;
+          renderSidebar();
+        });
 
-        if (activeSessionId === id) {
-          activeSessionId = null;
-          terminalPanel.classList.remove('visible');
-          emptyState.style.display = '';
-          const remaining = Array.from(sessions.keys());
-          if (remaining.length > 0) switchToSession(remaining[0]);
+        // Group header drag events (accept drops)
+        header.addEventListener('dragover', (e: DragEvent) => {
+          e.preventDefault();
+          e.stopPropagation();
+          clearDropIndicators();
+          const zone = getDropZone(e, header);
+          if (zone === 'merge') header.classList.add('drop-target-merge');
+          else if (zone === 'above') header.classList.add('drop-target-above');
+          else header.classList.add('drop-target-below');
+        });
+
+        header.addEventListener('dragleave', () => {
+          header.classList.remove('drop-target-merge', 'drop-target-above', 'drop-target-below');
+        });
+
+        header.addEventListener('drop', (e: DragEvent) => {
+          e.preventDefault();
+          e.stopPropagation();
+          clearDropIndicators();
+          const draggedId = e.dataTransfer!.getData('text/plain');
+          if (!draggedId || !sessions.has(draggedId)) return;
+          const zone = getDropZone(e, header);
+          handleDrop(draggedId, group.id, zone, true);
+        });
+
+        list.appendChild(header);
+
+        // Render children if not collapsed
+        if (!group.collapsed) {
+          for (const sid of group.sessionIds) {
+            const session = sessions.get(sid);
+            if (!session) continue;
+            list.appendChild(createSessionLi(sid, session, true));
+          }
         }
-
-        renderSidebar();
-      });
-
-      list.appendChild(li);
+      }
     }
+
+    // List-level drop handler: drop onto empty area to ungroup
+    list.ondragover = (e: DragEvent) => {
+      // Only handle if not over a child element
+      if (e.target === list) {
+        e.preventDefault();
+      }
+    };
+
+    list.ondrop = (e: DragEvent) => {
+      if (e.target !== list) return;
+      e.preventDefault();
+      clearDropIndicators();
+      const draggedId = e.dataTransfer!.getData('text/plain');
+      if (!draggedId || !sessions.has(draggedId)) return;
+
+      // Remove from group/sidebarOrder and add as standalone at end
+      removeSidebarEntry(draggedId);
+      enforceGroupIntegrity();
+      sidebarOrder.push({ type: 'session', id: draggedId });
+      renderSidebar();
+    };
   }
 });

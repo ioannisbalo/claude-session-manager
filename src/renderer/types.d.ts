@@ -57,4 +57,11 @@ interface Window {
   api: ElectronAPI;
 }
 
+interface SessionGroup {
+  id: string;
+  name: string;
+  sessionIds: string[];
+  collapsed: boolean;
+}
+
 // TerminalWrapper is declared in terminal.ts and loaded via script tag before app.ts
