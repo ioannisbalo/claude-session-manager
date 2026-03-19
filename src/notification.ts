@@ -30,7 +30,6 @@ class NotificationService {
 
       if (body) {
         const notification = new Notification({
-          silent: true,
           title: 'Claude Session Manager',
           body,
           icon: this.icon,
