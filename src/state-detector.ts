@@ -8,8 +8,9 @@ export interface TransitionDetail {
   trigger: 'settle' | 'stale-fallback' | 'user-input' | 'exit';
 }
 
-const SETTLE_DELAY_MS = 200;
-const STALE_WORKING_MS = 3000;
+// Wait for output to fully stop before classifying.
+// If text is still arriving, it's always "working".
+const QUIET_DELAY_MS = 1500;
 
 /**
  * Detects Claude Code session state.
@@ -23,14 +24,15 @@ const STALE_WORKING_MS = 3000;
  * Strategy:
  *   - Starts as "idle"
  *   - Flips to "working" when user sends input (markUserInput)
- *   - After output settles, checks for prompt type:
- *     - Main prompt (❯) → "idle"
- *     - Confirmation/question prompt → "needs-input"
+ *   - While output is flowing, stays "working" — no classification attempted
+ *   - Once output goes quiet (no data for QUIET_DELAY_MS), classifies based on last lines:
+ *     - Permission/confirmation prompt → "needs-input"
+ *     - Main prompt (❯) or completion status → "idle"
+ *     - Neither → stays "working" (e.g. long tool execution with no output)
  */
 class StateDetector {
   private recentOutput: string = '';
-  private settleTimer: ReturnType<typeof setTimeout> | null = null;
-  private staleTimer: ReturnType<typeof setTimeout> | null = null;
+  private quietTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly onStateChange: (state: SessionState) => void;
   private readonly onTransition: ((detail: TransitionDetail) => void) | null;
   private currentState: SessionState = 'idle';
@@ -60,26 +62,24 @@ class StateDetector {
       this.recentOutput = this.recentOutput.slice(-2048);
     }
 
-    if (this.settleTimer) {
-      clearTimeout(this.settleTimer);
-    }
-    if (this.staleTimer) {
-      clearTimeout(this.staleTimer);
+    // Reset the quiet timer — output is still flowing, so we're definitely working
+    if (this.quietTimer) {
+      clearTimeout(this.quietTimer);
     }
 
-    this.settleTimer = setTimeout(() => {
-      this.settle();
-    }, SETTLE_DELAY_MS);
-
-    this.staleTimer = setTimeout(() => {
-      this.settleStale();
-    }, STALE_WORKING_MS);
+    this.quietTimer = setTimeout(() => {
+      this.classify();
+    }, QUIET_DELAY_MS);
   }
 
-  private settle(): void {
+  /** Called once output has been quiet for QUIET_DELAY_MS. Classify the final state. */
+  private classify(): void {
+    if (this.currentState !== 'working') return;
+
     const stripped = this.stripAnsi(this.recentOutput);
     const lastLines = stripped.split('\n').slice(-10);
 
+    // 1. Check for input/permission prompts first (highest priority)
     const inputMatch = this.findInputPromptMatch(lastLines);
     if (inputMatch) {
       const prev = this.currentState;
@@ -90,6 +90,7 @@ class StateDetector {
       return;
     }
 
+    // 2. Check for idle indicators
     const idleMatch = this.findIdleMatch(lastLines);
     if (idleMatch) {
       const prev = this.currentState;
@@ -100,10 +101,8 @@ class StateDetector {
       return;
     }
 
-    if (lastLines.some(line => this.isWorkingHint(line))) {
-      // Confirmed still working — don't change state, just clear buffer
-      this.recentOutput = '';
-    }
+    // 3. No match — stay working (e.g. long-running tool with no recent output)
+    // Don't clear the buffer so we can re-classify when more output arrives
   }
 
   /** Find which input prompt pattern matched, return its name or null */
@@ -117,8 +116,8 @@ class StateDetector {
       ['generic > prompt', /^>\s*$/],
       // Numbered choice: ❯1.Yes or ❯ 1. Yes or › 1. Yes
       ['numbered choice list', /^[›❯>]\s*\d+\.\s*/],
-      // Standalone numbered items: 2.Yes or 2. Yes
-      ['numbered option', /^\d+\.\s*(Yes|No|Allow|Deny|Skip|Accept|Reject)\b/i],
+      // Standalone numbered items: 2.Yes or 2. Yes — only matched if permission context present (checked below)
+      ['numbered option', /^\d+\.\s*(Yes|No|Allow|Deny|Accept|Reject)\b/i],
       ['Do you want to', /Do\s*you\s*want\s*to/i],
       ['Would you like to proceed', /Would\s*you\s*like\s*to\s*proceed/i],
       ['ctrl-g Vim hint', /ctrl-g\s*to\s*edit\s*in\s*Vim/i],
@@ -133,6 +132,12 @@ class StateDetector {
       const trimmed = line.trim();
       for (const [name, pattern] of patterns) {
         if (pattern.test(trimmed)) {
+          // These patterns can appear in Claude's output text, not just prompts.
+          // Only count them if permission context (Esc to cancel, Tab to amend) is also present.
+          const needsContext = ['numbered option', 'Do you want to', 'Would you like to proceed'];
+          if (needsContext.includes(name) && !this.hasPermissionContext(lines)) {
+            continue;
+          }
           return name;
         }
       }
@@ -162,41 +167,13 @@ class StateDetector {
     return null;
   }
 
-  /** Claude Code working hints — appear while Claude is generating */
-  private isWorkingHint(line: string): boolean {
-    const trimmed = line.trim();
-    return /Esc\s*to\s*(cancel|interrupt)/i.test(trimmed)
-      && !/Tab\s*to\s*amend/i.test(trimmed); // If "Tab to amend" is also present, it's a permission prompt, not working
-  }
-
-  /** Aggressively check for idle when output has been stale for a while */
-  private settleStale(): void {
-    if (this.currentState !== 'working') return;
-
-    const stripped = this.stripAnsi(this.recentOutput);
-    const lastLines = stripped.split('\n').slice(-10);
-
-    // First check for input prompts — they take priority even in stale mode
-    const inputMatch = this.findInputPromptMatch(lastLines);
-    if (inputMatch) {
-      const prev = this.currentState;
-      this.recentOutput = '';
-      this.currentState = 'needs-input';
-      this.onStateChange('needs-input');
-      this.emitTransition(prev, 'needs-input', lastLines, inputMatch, 'stale-fallback');
-      return;
-    }
-
-    // Only match ❯ as idle if it's genuinely the main prompt (alone on a line),
-    // not part of a numbered choice list like ❯ 1. Yes
-    const mainPromptRegex = /^❯\s*$/m;
-    if (mainPromptRegex.test(stripped)) {
-      const prev = this.currentState;
-      this.recentOutput = '';
-      this.currentState = 'idle';
-      this.onStateChange('idle');
-      this.emitTransition(prev, 'idle', lastLines, 'stale ❯ (standalone)', 'stale-fallback');
-    }
+  /** Check if lines contain permission prompt UI elements (Esc to cancel, Tab to amend) */
+  private hasPermissionContext(lines: string[]): boolean {
+    return lines.some(line => {
+      const trimmed = line.trim();
+      return /Esc\s*to\s*cancel/i.test(trimmed)
+        || /Tab\s*to\s*amend/i.test(trimmed);
+    });
   }
 
   private emitTransition(
@@ -226,11 +203,8 @@ class StateDetector {
   }
 
   dispose(): void {
-    if (this.settleTimer) {
-      clearTimeout(this.settleTimer);
-    }
-    if (this.staleTimer) {
-      clearTimeout(this.staleTimer);
+    if (this.quietTimer) {
+      clearTimeout(this.quietTimer);
     }
   }
 }

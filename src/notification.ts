@@ -7,6 +7,7 @@ class NotificationService {
   private windowFocused: boolean = true;
   private readonly icon: Electron.NativeImage;
 
+
   constructor(sessionManager: SessionManager, window: BrowserWindow) {
     this.icon = nativeImage.createFromPath(
       path.join(__dirname, '..', 'assets', 'icon.png'),
