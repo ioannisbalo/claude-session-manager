@@ -9,6 +9,8 @@
     "copy-assets": "cp src/renderer/index.html dist/src/renderer/ && cp src/renderer/styles.css dist/src/renderer/",
     "start": "npm run build && electron .",
     "watch": "tsc -p tsconfig.json --watch & tsc -p tsconfig.renderer.json --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper 2>/dev/null || true"
   },
   "keywords": [],
@@ -24,6 +26,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.0"
   }
 }

@@ -12,8 +12,11 @@ A desktop app for managing multiple [Claude Code](https://docs.anthropic.com/en/
   - **Blue** — idle, waiting for input
   - **Yellow** — needs confirmation (y/n, permissions, etc.)
   - **Red** — session exited
-- Native macOS notifications when a background session finishes or needs input
-- Full terminal emulation via xterm.js
+- **Session groups** — drag and drop sessions onto each other to create groups, collapse/expand groups, rename group headers
+- **Session restore** — layout is saved on quit and restored on next launch, resuming previous Claude conversations via `--continue`
+- **State correction** — click a session's status dot to manually fix a misdetected state
+- Native macOS notifications when a background session finishes or needs input — clicking a notification switches to that session
+- Full terminal emulation via xterm.js with clickable URLs
 - Rename sessions via the edit button (✎) in the sidebar header
 - Keyboard shortcuts for fast navigation
 - Path validation to prevent opening broad directories (`/`, `~`, etc.)
@@ -66,6 +69,7 @@ This project intentionally keeps its dependency tree small to reduce the supply 
 | `node-pty` | PTY spawning for Claude CLI processes |
 | `@xterm/xterm` | Terminal emulation in the renderer |
 | `@xterm/addon-fit` | Responsive terminal sizing |
+| `@xterm/addon-web-links` | Clickable URLs in terminal output |
 
 No bundlers, no CSS frameworks, no utility libraries. The renderer loads plain scripts without a build pipeline beyond TypeScript compilation. Fewer dependencies means fewer vectors for compromised packages to reach your system — especially important for an app that spawns shell processes with full filesystem access.
 
