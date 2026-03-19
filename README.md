@@ -73,6 +73,16 @@ This project intentionally keeps its dependency tree small to reduce the supply 
 
 No bundlers, no CSS frameworks, no utility libraries. The renderer loads plain scripts without a build pipeline beyond TypeScript compilation. Fewer dependencies means fewer vectors for compromised packages to reach your system — especially important for an app that spawns shell processes with full filesystem access.
 
+## IDE Integration
+
+Since each session runs a real `claude` CLI process in a PTY, IDE integrations work out of the box. For example, to connect a session to IntelliJ IDEA:
+
+1. Open a session in Claude Session Manager pointed at your project directory
+2. In the session's terminal, run the `/ide` slash command
+3. Claude will detect and connect to your running IntelliJ instance
+
+This works with any IDE that has a Claude Code plugin (IntelliJ, VS Code, etc.) — the plugin sees the same CLI process it would in a regular terminal, so features like applying diffs, reading open files, and navigating to code all work transparently.
+
 ## How It Works
 
 Each session spawns a real `claude` CLI process in a pseudo-terminal (via `node-pty`). The app monitors terminal output to detect Claude's state (working, idle, needs input) by parsing prompt patterns after ANSI stripping. This means IDE integrations like the IntelliJ plugin work transparently — they see the same CLI process they would in a regular terminal.
