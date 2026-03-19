@@ -51,7 +51,7 @@ interface ElectronAPI {
   openUrl(url: string): Promise<void>;
   correctState(id: string, correctState: string): Promise<void>;
   getLogPath(): Promise<string>;
-  createSessionAt(cwd: string): Promise<SessionInfo | null>;
+  createSessionAt(cwd: string, options?: { continue?: boolean }): Promise<SessionInfo | null>;
   saveState(state: string): Promise<void>;
   loadState(): Promise<string | null>;
   onBeforeQuit(callback: () => void): void;

@@ -36,7 +36,7 @@ class SessionManager extends EventEmitter {
     this.transitionLogger = new TransitionLogger(userDataPath);
   }
 
-  createSession(cwd: string): Session {
+  createSession(cwd: string, options?: { continue?: boolean }): Session {
     const id = String(nextId++);
     const name = path.basename(cwd);
 
@@ -46,7 +46,12 @@ class SessionManager extends EventEmitter {
       TERM: 'xterm-256color',
     };
 
-    const ptyProcess = pty.spawn('claude', [], {
+    const args: string[] = [];
+    if (options?.continue) {
+      args.push('--continue');
+    }
+
+    const ptyProcess = pty.spawn('claude', args, {
       name: 'xterm-256color',
       cols: 120,
       rows: 30,

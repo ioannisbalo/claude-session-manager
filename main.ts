@@ -173,9 +173,9 @@ function createWindow(): void {
   });
 
   // Create session at a specific cwd (no directory picker)
-  ipcMain.handle('session:create-at', (_event: IpcMainInvokeEvent, cwd: string) => {
+  ipcMain.handle('session:create-at', (_event: IpcMainInvokeEvent, cwd: string, options?: { continue?: boolean }) => {
     if (!fs.existsSync(cwd)) return null;
-    const session = sessionManager!.createSession(cwd);
+    const session = sessionManager!.createSession(cwd, options);
     return { id: session.id, name: session.name, cwd: session.cwd, status: session.status };
   });
 

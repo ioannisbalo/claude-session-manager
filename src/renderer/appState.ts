@@ -95,7 +95,7 @@ async function restoreState(): Promise<boolean> {
   const idMap = new Map<string, string>();
 
   for (const saved of state.sessions) {
-    const session = await window.api.createSessionAt(saved.cwd) as SessionInfo | null;
+    const session = await window.api.createSessionAt(saved.cwd, { continue: true }) as SessionInfo | null;
     if (session) {
       session.name = saved.name;
       sessions.set(session.id, session);
