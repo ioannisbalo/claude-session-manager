@@ -31,7 +31,7 @@ A desktop app for managing multiple [Claude Code](https://docs.anthropic.com/en/
 
 ```bash
 # Clone the repo
-git clone https://github.com/your-username/claude-session-manager.git
+git clone https://github.com/ioannisbalo/claude-session-manager.git
 cd claude-session-manager
 
 # Install dependencies
