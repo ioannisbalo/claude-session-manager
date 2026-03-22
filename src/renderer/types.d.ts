@@ -54,6 +54,7 @@ interface ElectronAPI {
   createSessionAt(cwd: string, options?: { continue?: boolean }): Promise<SessionInfo | null>;
   saveState(state: string): Promise<void>;
   loadState(): Promise<string | null>;
+  getPathForFile(file: File): string;
   onBeforeQuit(callback: () => void): void;
 }
 

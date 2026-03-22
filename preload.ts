@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
 contextBridge.exposeInMainWorld('api', {
   createSession: (): Promise<unknown> => ipcRenderer.invoke('session:create'),
@@ -35,6 +35,7 @@ contextBridge.exposeInMainWorld('api', {
   createSessionAt: (cwd: string, options?: { continue?: boolean }): Promise<unknown> => ipcRenderer.invoke('session:create-at', cwd, options),
   saveState: (state: string): Promise<void> => ipcRenderer.invoke('state:save', state),
   loadState: (): Promise<string | null> => ipcRenderer.invoke('state:load'),
+  getPathForFile: (file: File): string => webUtils.getPathForFile(file),
   onBeforeQuit: (callback: () => void): void => {
     ipcRenderer.on('app:before-quit', () => callback());
   },

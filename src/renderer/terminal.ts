@@ -60,6 +60,29 @@ class TerminalWrapper {
 
     this._resizeObserver = new ResizeObserver(() => this.fit());
     this._resizeObserver.observe(container);
+
+    // File drop: write file paths into the terminal.
+    // Listen on document because xterm.js creates internal layers that swallow events.
+    document.addEventListener('dragover', (e: DragEvent) => {
+      if (e.dataTransfer?.types.includes('Files')) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+      }
+    });
+
+    document.addEventListener('drop', (e: DragEvent) => {
+      e.preventDefault();
+      if (!this.onInputCallback || !this.activeSessionId) return;
+      const files = e.dataTransfer?.files;
+      if (!files || files.length === 0) return;
+
+      const paths = Array.from(files)
+        .map(f => (window as any).api.getPathForFile(f) as string)
+        .filter(Boolean);
+      if (paths.length > 0) {
+        this.onInputCallback(this.activeSessionId, paths.join(' '));
+      }
+    });
   }
 
   fit(): void {
