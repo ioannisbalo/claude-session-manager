@@ -5,7 +5,7 @@ export interface TransitionDetail {
   to: SessionState;
   linesExamined: string[];
   matchedPattern: string | null;
-  trigger: 'settle' | 'stale-fallback' | 'user-input' | 'exit';
+  trigger: 'settle' | 'user-input' | 'exit';
 }
 
 // Wait for output to fully stop before classifying.
@@ -28,7 +28,8 @@ const QUIET_DELAY_MS = 1500;
  *   - Once output goes quiet (no data for QUIET_DELAY_MS), classifies based on last lines:
  *     - Permission/confirmation prompt → "needs-input"
  *     - Main prompt (❯) or completion status → "idle"
- *     - Neither → stays "working" (e.g. long tool execution with no output)
+ *     - Active spinner (· / ✶ / ✽) or "esc to interrupt" → stays "working"
+ *     - None of the above → defaults to "idle" (no-match fallback)
  */
 class StateDetector {
   private recentOutput: string = '';
@@ -101,8 +102,19 @@ class StateDetector {
       return;
     }
 
-    // 3. No match — stay working (e.g. long-running tool with no recent output)
-    // Don't clear the buffer so we can re-classify when more output arrives
+    // 3. If a spinner or "esc to interrupt" is present, Claude is still active
+    if (this.hasSpinner(lastLines) || this.lastWorkingContextIndex(lastLines) >= 0) {
+      return;
+    }
+
+    // 4. No match and no working indicators — output stopped, force transition to idle
+    {
+      const prev = this.currentState;
+      this.recentOutput = '';
+      this.currentState = 'idle';
+      this.onStateChange('idle');
+      this.emitTransition(prev, 'idle', lastLines, 'no-match fallback', 'settle');
+    }
   }
 
   /** Find which input prompt pattern matched, return its name or null */
@@ -138,6 +150,11 @@ class StateDetector {
           if (needsContext.includes(name) && !this.hasPermissionContext(lines)) {
             continue;
           }
+          // "Esc to cancel · Tab to amend" on a long prose line is Claude discussing
+          // prompts, not an actual status bar — reject lines over 80 chars
+          if (name === 'permission prompt (Esc+Tab)' && trimmed.length > 80) {
+            continue;
+          }
           return name;
         }
       }
@@ -147,32 +164,71 @@ class StateDetector {
 
   /** Find which idle pattern matched, return its name or null */
   private findIdleMatch(lines: string[]): string | null {
-    for (const line of lines) {
-      const trimmed = line.trim();
+    let idleMatchIndex = -1;
+    let idleMatchName: string | null = null;
+
+    for (let i = 0; i < lines.length; i++) {
+      const trimmed = lines[i].trim();
       // Main prompt: ❯ alone on the line (not followed by a digit = numbered list)
       if (/^❯\s*$/.test(trimmed)) {
-        return 'main prompt ❯ (empty)';
+        idleMatchIndex = i;
+        idleMatchName = 'main prompt ❯ (empty)';
       }
       // ❯ followed by non-digit text (user typing) — but NOT ❯1. or ❯ 1.
-      if (/^❯\s+\S/.test(trimmed) && !/^❯\s*\d+\./.test(trimmed)) {
-        return 'main prompt ❯ (with text)';
+      else if (/^❯\s+\S/.test(trimmed) && !/^❯\s*\d+\./.test(trimmed)) {
+        idleMatchIndex = i;
+        idleMatchName = 'main prompt ❯ (with text)';
       }
-      if (/^✻\s*\S+.*for\s*\d/.test(trimmed) || /Crunched?\s*for\s*\d/i.test(trimmed) || /Cooked?\s*for\s*\d/i.test(trimmed)) {
-        return 'completion status ✻';
+      else if (/^✻\s*\S+.*for\s*\d/.test(trimmed) || /Crunched?\s*for\s*\d/i.test(trimmed) || /Cooked?\s*for\s*\d/i.test(trimmed)) {
+        idleMatchIndex = i;
+        idleMatchName = 'completion status ✻';
       }
-      if (/\?\s*for\s*shortcuts/i.test(trimmed)) {
-        return 'shortcuts hint';
+      else if (/\?\s*for\s*shortcuts/i.test(trimmed)) {
+        idleMatchIndex = i;
+        idleMatchName = 'shortcuts hint';
       }
     }
-    return null;
+
+    if (idleMatchIndex === -1) return null;
+
+    // "esc to interrupt" only appears when Claude is actively working.
+    // If it appears AFTER the idle match, the idle prompt is a stale screen redraw.
+    // If the idle match comes after it, Claude has genuinely transitioned to idle.
+    const lastWorkingIndex = this.lastWorkingContextIndex(lines);
+    if (lastWorkingIndex > idleMatchIndex) {
+      return null;
+    }
+
+    return idleMatchName;
   }
 
   /** Check if lines contain permission prompt UI elements (Esc to cancel, Tab to amend) */
   private hasPermissionContext(lines: string[]): boolean {
     return lines.some(line => {
       const trimmed = line.trim();
+      // Only match short status-bar lines — long lines are Claude's prose discussing prompts
+      if (trimmed.length > 80) return false;
       return /Esc\s*to\s*cancel/i.test(trimmed)
         || /Tab\s*to\s*amend/i.test(trimmed);
+    });
+  }
+
+  /** Return the last line index containing a working-state indicator, or -1 */
+  private lastWorkingContextIndex(lines: string[]): number {
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (/esc\s*to\s*interrupt/i.test(lines[i].trim())) return i;
+    }
+    return -1;
+  }
+
+  /** Check if any recent line starts with an active spinner/progress indicator */
+  private hasSpinner(lines: string[]): boolean {
+    // Only check last 3 lines — spinner is always near the bottom
+    const tail = lines.slice(-3);
+    return tail.some(line => {
+      const trimmed = line.trim();
+      // · Verbing… or ✶ Verbing… or ✽ Verbing… — active progress spinner
+      return /^[·✶✽]\s+\S+…/.test(trimmed);
     });
   }
 

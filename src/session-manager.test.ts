@@ -191,10 +191,30 @@ describe('SessionManager', () => {
       expect(pty.written).toEqual(['some command\r']);
     });
 
-    it('does not call markUserInput for data without newline', () => {
+    it('does not call markUserInput for data without newline when idle', () => {
       const { session } = createTestSession();
       const spy = vi.spyOn(session.stateDetector, 'markUserInput');
       sm.write(session.id, 'partial');
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('calls markUserInput for single-keypress input when needs-input', () => {
+      const { session } = createTestSession();
+      session.status = 'needs-input';
+      const spy = vi.spyOn(session.stateDetector, 'markUserInput');
+      sm.write(session.id, 'y');
+      expect(spy).toHaveBeenCalled();
+    });
+
+    it('does not call markUserInput for CSI sequences when needs-input (mouse/focus)', () => {
+      const { session } = createTestSession();
+      session.status = 'needs-input';
+      const spy = vi.spyOn(session.stateDetector, 'markUserInput');
+      // Mouse click event from xterm
+      sm.write(session.id, '\x1b[M !!');
+      expect(spy).not.toHaveBeenCalled();
+      // Focus-in event
+      sm.write(session.id, '\x1b[I');
       expect(spy).not.toHaveBeenCalled();
     });
 

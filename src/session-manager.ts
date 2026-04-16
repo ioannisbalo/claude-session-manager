@@ -114,7 +114,15 @@ class SessionManager extends EventEmitter {
   write(id: string, data: string): void {
     const session = this.sessions.get(id);
     if (session && session.status !== 'done') {
-      if (data.includes('\r') || data.includes('\n')) {
+      // Newlines = user submitted a command. Any keypress while in needs-input
+      // = user answered a permission prompt (y, n, Tab, digit — no newline).
+      // Filter out CSI control sequences (mouse clicks, focus events) that xterm
+      // sends on terminal interaction — these aren't real prompt responses.
+      const hasNewline = data.includes('\r') || data.includes('\n');
+      const isPromptResponse = session.status === 'needs-input'
+        && !data.startsWith('\x1b[')
+        && data !== '';
+      if (hasNewline || isPromptResponse) {
         session.stateDetector.markUserInput();
       }
       session.ptyProcess.write(data);

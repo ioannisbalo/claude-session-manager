@@ -10,7 +10,7 @@ export interface TransitionEntry {
   to: SessionState;
   linesExamined: string[];
   matchedPattern: string | null;
-  trigger: 'settle' | 'stale-fallback' | 'user-input' | 'exit' | 'correction';
+  trigger: 'settle' | 'user-input' | 'exit' | 'correction';
   correctedTo?: SessionState;
 }
 

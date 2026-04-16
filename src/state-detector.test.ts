@@ -156,10 +156,10 @@ describe('StateDetector', () => {
       expect(stateChanges).toEqual(['needs-input']);
     });
 
-    it('does NOT detect numbered option WITHOUT permission context', () => {
+    it('does NOT detect numbered option WITHOUT permission context (falls to idle)', () => {
       const { detector, stateChanges } = createDetector();
       feedAndClassify(detector, '1. Yes\nSome other text\n', stateChanges);
-      expect(stateChanges).toEqual([]);
+      expect(stateChanges).toEqual(['idle']);
     });
 
     it('detects "Do you want to" WITH permission context', () => {
@@ -168,10 +168,10 @@ describe('StateDetector', () => {
       expect(stateChanges).toEqual(['needs-input']);
     });
 
-    it('does NOT detect "Do you want to" WITHOUT permission context', () => {
+    it('does NOT detect "Do you want to" WITHOUT permission context (falls to idle)', () => {
       const { detector, stateChanges } = createDetector();
       feedAndClassify(detector, 'Do you want to proceed?\n', stateChanges);
-      expect(stateChanges).toEqual([]);
+      expect(stateChanges).toEqual(['idle']);
     });
 
     it('detects "Would you like to proceed" WITH permission context', () => {
@@ -180,10 +180,10 @@ describe('StateDetector', () => {
       expect(stateChanges).toEqual(['needs-input']);
     });
 
-    it('does NOT detect "Would you like to proceed" WITHOUT permission context', () => {
+    it('does NOT detect "Would you like to proceed" WITHOUT permission context (falls to idle)', () => {
       const { detector, stateChanges } = createDetector();
       feedAndClassify(detector, 'Would you like to proceed?\n', stateChanges);
-      expect(stateChanges).toEqual([]);
+      expect(stateChanges).toEqual(['idle']);
     });
 
     it('detects ctrl-g Vim hint', () => {
@@ -256,10 +256,92 @@ describe('StateDetector', () => {
     });
   });
 
-  describe('classify — no match', () => {
-    it('stays working when output has no recognizable pattern', () => {
+  describe('classify — working context veto', () => {
+    it('does NOT classify as idle when "esc to interrupt" appears AFTER ❯ (stale redraw)', () => {
+      const { detector, stateChanges } = createDetector();
+      feedAndClassify(detector, '❯\xa0 \r\r\nesc to interrupt\r\r\n', stateChanges);
+      expect(stateChanges).toEqual([]);
+    });
+
+    it('does NOT classify as idle when "esc to interrupt" is below ❯ in redraw', () => {
+      const { detector, stateChanges } = createDetector();
+      // Real-world case: screen redraw after user sends input, old ❯ still visible
+      const data = [
+        '❯\xa0 \r\r',
+        '──────────────────────────────────────────────────',
+        'esc to interrupt\r\r',
+        '\rtabs=process_all(csv_data)\r',
+        'esc to interrupt\r\r',
+        '',
+      ].join('\n');
+      feedAndClassify(detector, data, stateChanges);
+      expect(stateChanges).toEqual([]);
+    });
+
+    it('DOES classify as idle when ❯ appears AFTER "esc to interrupt" (real transition)', () => {
+      const { detector, stateChanges } = createDetector();
+      // Claude was working (esc to interrupt visible), then finished and shows idle prompt
+      const data = [
+        'some output',
+        'esc to interrupt',
+        '✻ Task completed for 5s',
+        '──────────────────────────────────────────────────',
+        '❯ ',
+        '──────────────────────────────────────────────────',
+        '? for shortcuts',
+      ].join('\n');
+      feedAndClassify(detector, data, stateChanges);
+      expect(stateChanges).toEqual(['idle']);
+    });
+
+    it('classifies as idle when "esc to interrupt" is NOT present', () => {
+      const { detector, stateChanges } = createDetector();
+      feedAndClassify(detector, '❯ \n? for shortcuts\n', stateChanges);
+      expect(stateChanges).toEqual(['idle']);
+    });
+  });
+
+  describe('classify — permission context strictness', () => {
+    it('does NOT match permission context in long prose lines (falls to idle)', () => {
+      const { detector, stateChanges } = createDetector();
+      // Claude discussing permission prompts in its output — line is >80 chars
+      const data = [
+        '2. hasPermissionContext guard on idle transitions — Both settle() and settleStale() now check if permission indicators ("Esc to cancel", "Tab to amend") are present',
+        'Do you want to proceed with the changes?',
+      ].join('\n');
+      feedAndClassify(detector, data, stateChanges);
+      // "Do you want to" lacks valid short-line permission context,
+      // and "permission prompt (Esc+Tab)" is on a line >80 chars — falls to idle
+      expect(stateChanges).toEqual(['idle']);
+    });
+
+    it('matches permission context on short status-bar lines', () => {
+      const { detector, stateChanges } = createDetector();
+      const data = [
+        'Do you want to proceed?',
+        'Esc to cancel · Tab to amend',
+      ].join('\n');
+      feedAndClassify(detector, data, stateChanges);
+      expect(stateChanges).toEqual(['needs-input']);
+    });
+  });
+
+  describe('classify — no match fallback', () => {
+    it('falls through to idle when output has no recognizable pattern and no spinner', () => {
       const { detector, stateChanges } = createDetector();
       feedAndClassify(detector, 'Running tool: execute_bash\nSome output here\n', stateChanges);
+      expect(stateChanges).toEqual(['idle']);
+    });
+
+    it('stays working when spinner is present on a recent line', () => {
+      const { detector, stateChanges } = createDetector();
+      feedAndClassify(detector, 'some output\n· Computing…\n', stateChanges);
+      expect(stateChanges).toEqual([]);
+    });
+
+    it('stays working when ✶ spinner is present', () => {
+      const { detector, stateChanges } = createDetector();
+      feedAndClassify(detector, 'some output\n✶ Crafting… (running stop hook)\n', stateChanges);
       expect(stateChanges).toEqual([]);
     });
 
@@ -346,8 +428,9 @@ describe('StateDetector', () => {
       stateChanges.length = 0;
       detector.feed('just some text\n');
       vi.advanceTimersByTime(QUIET_DELAY_MS);
-      // Old ❯ pattern should NOT leak — should stay working
-      expect(stateChanges).toEqual([]);
+      // Old ❯ pattern should NOT leak — falls to idle via no-match fallback
+      // (the key point is it doesn't classify based on stale ❯ from previous buffer)
+      expect(stateChanges).toEqual(['idle']);
     });
   });
 
