@@ -72,17 +72,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  document.addEventListener('keydown', (e: KeyboardEvent) => {
-    if (e.metaKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
-      e.preventDefault();
-      const ids = getVisibleSessionOrder();
-      if (ids.length < 2) return;
-      const currentIndex = ids.indexOf(activeSessionId!);
-      const next = e.key === 'ArrowDown'
-        ? (currentIndex + 1) % ids.length
-        : (currentIndex - 1 + ids.length) % ids.length;
-      switchToSession(ids[next]);
-    }
+  window.api.onNavSession((direction: 'next' | 'prev') => {
+    const ids = getVisibleSessionOrder();
+    if (ids.length < 2) return;
+    const currentIndex = ids.indexOf(activeSessionId!);
+    const next = direction === 'next'
+      ? (currentIndex + 1) % ids.length
+      : (currentIndex - 1 + ids.length) % ids.length;
+    switchToSession(ids[next]);
   });
 
   function switchToSession(sessionId: string): void {

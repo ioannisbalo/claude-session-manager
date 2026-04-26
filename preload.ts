@@ -26,6 +26,9 @@ contextBridge.exposeInMainWorld('api', {
   onSwitchSession: (callback: (id: string) => void): void => {
     ipcRenderer.on('switch-session', (_, id) => callback(id));
   },
+  onNavSession: (callback: (direction: 'next' | 'prev') => void): void => {
+    ipcRenderer.on('nav-session', (_, direction) => callback(direction));
+  },
 
   openUrl: (url: string): Promise<void> => ipcRenderer.invoke('open-url', url),
   correctState: (id: string, correctState: string): Promise<void> =>

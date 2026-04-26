@@ -95,10 +95,20 @@ function createWindow(): void {
     if (!win.isDestroyed()) win.webContents.send('session:exit', sessionId, exitCode);
   });
 
-  // Cmd+N shortcut to create new session
+  // Keyboard shortcuts. Handled here (not the renderer) so xterm.js can't swallow them.
+  // - Cmd+N (macOS) / Ctrl+N (Linux/Windows): new session
+  // - Cmd+Up/Down (macOS) / Ctrl+Shift+Up/Down (Linux/Windows): switch session
   win.webContents.on('before-input-event', (_event, input) => {
-    if (input.meta && input.key === 'n' && input.type === 'keyDown') {
+    if (input.type !== 'keyDown') return;
+
+    if ((input.meta || input.control) && input.key === 'n') {
       win.webContents.send('new-session');
+      return;
+    }
+
+    const navModifier = input.meta || (input.control && input.shift);
+    if (navModifier && (input.key === 'ArrowUp' || input.key === 'ArrowDown')) {
+      win.webContents.send('nav-session', input.key === 'ArrowDown' ? 'next' : 'prev');
     }
   });
 

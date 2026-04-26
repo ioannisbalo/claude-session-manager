@@ -48,6 +48,7 @@ interface ElectronAPI {
   onExit(callback: (id: string, code: number) => void): void;
   onNewSession(callback: () => void): void;
   onSwitchSession(callback: (id: string) => void): void;
+  onNavSession(callback: (direction: 'next' | 'prev') => void): void;
   openUrl(url: string): Promise<void>;
   correctState(id: string, correctState: string): Promise<void>;
   getLogPath(): Promise<string>;
