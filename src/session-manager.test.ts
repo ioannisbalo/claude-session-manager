@@ -239,6 +239,13 @@ describe('SessionManager', () => {
       expect(pty.lastRows).toBe(50);
     });
 
+    it('forwards resize to the state detector', () => {
+      const { session } = createTestSession();
+      const spy = vi.spyOn(session.stateDetector, 'resize');
+      sm.resize(session.id, 200, 50);
+      expect(spy).toHaveBeenCalledWith(200, 50);
+    });
+
     it('is a no-op when session status is done', () => {
       const { session, pty } = createTestSession();
       session.status = 'done';
@@ -356,7 +363,7 @@ describe('SessionManager', () => {
 
       stateChanges.length = 0;
       pty.simulateData('❯ \n');
-      vi.advanceTimersByTime(1500);
+      vi.advanceTimersByTime(6000);
       expect(stateChanges).toEqual([[session.id, 'idle']]);
     });
 
@@ -364,7 +371,7 @@ describe('SessionManager', () => {
       const { session, pty } = createTestSession();
       sm.write(session.id, 'command\r');
       pty.simulateData('(y/n)\n');
-      vi.advanceTimersByTime(1500);
+      vi.advanceTimersByTime(6000);
 
       expect(loggedEntries.length).toBeGreaterThan(0);
       const entry = loggedEntries[loggedEntries.length - 1] as Record<string, unknown>;

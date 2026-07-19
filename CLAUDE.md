@@ -53,7 +53,7 @@ Electron app with two TypeScript compilation targets (tsconfig.main.json for Nod
 
 - **main.ts** — App entry point. Creates BrowserWindow, sets up IPC handlers, validates working directory paths, wires SessionManager events to renderer.
 - **SessionManager** — Spawns `claude` CLI processes via `node-pty`. Each session has a PTY, rolling output buffer (512KB cap), and a StateDetector. Emits `output`, `state-change`, `exit` events.
-- **StateDetector** — Heuristic state machine that parses raw PTY output to infer Claude's state (`idle`/`working`/`needs-input`/`done`). Strips ANSI escape sequences, then pattern-matches prompt characters (`❯` for idle, y/n/accept/deny patterns for needs-input). Has a 200ms settle delay and a 3s stale-working fallback.
+- **StateDetector** — Heuristic state machine that infers Claude's state (`idle`/`working`/`needs-input`/`done`) from the rendered screen, not the raw byte stream: all PTY output feeds a headless xterm instance (`@xterm/headless`, scrollback 0), and the bottom ~10 screen rows are pattern-matched (working indicators like `esc to interrupt`/spinners first, then permission prompts, then `❯`/completion for idle). While in `working` it polls the screen every 1s — Claude Code repaints continuously even at a permission prompt, so waiting for quiet output would never classify. Transitions out of `working` need 2 consecutive agreeing reads (3 for the no-match idle fallback).
 - **NotificationService** — Sends native macOS notifications when a non-focused session changes state. Clicking a notification switches to that session.
 
 ### Renderer Process (src/renderer/*.ts)
@@ -68,6 +68,6 @@ Context-isolated bridge (`window.api`). Invoke channels: `session:create`, `sess
 
 ## Key Design Decisions
 
-- State detection is heuristic (output parsing), not message-based — ANSI stripping quality directly affects state accuracy.
+- State detection is heuristic (screen parsing via headless terminal emulation), not message-based. Claude Code draws its TUI with cursor positioning rather than newlines, so regexing the raw stream cannot recover line structure — patterns must run against emulated screen rows.
 - Renderer uses no bundler. Script load order in index.html matters: xterm.js → addon-fit.js → terminal.js → app.js.
 - Session buffers are replayed on switch, so scrollback is preserved across tab changes.

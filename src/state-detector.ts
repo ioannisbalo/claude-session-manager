@@ -1,3 +1,5 @@
+import { Terminal } from '@xterm/headless';
+
 export type SessionState = 'working' | 'needs-input' | 'idle' | 'done';
 
 export interface TransitionDetail {
@@ -8,9 +10,33 @@ export interface TransitionDetail {
   trigger: 'settle' | 'user-input' | 'exit';
 }
 
-// Wait for output to fully stop before classifying.
-// If text is still arriving, it's always "working".
-const QUIET_DELAY_MS = 1500;
+// How often to look at the screen. Claude Code repaints continuously (even
+// while sitting at a permission prompt), so waiting for output to go quiet
+// would never classify — we poll instead. Polling runs in every state, not
+// just "working": prompts can be answered through inputs we can't observe
+// as keystrokes (mouse clicks, shift+tab, remote control), so the screen is
+// the only reliable signal that a dialog was dismissed or work started.
+const CLASSIFY_INTERVAL_MS = 1000;
+
+// Grace period after user input before the first look — gives Claude Code
+// time to repaint, so we don't classify the previous (stale) screen.
+const FIRST_CLASSIFY_DELAY_MS = 1500;
+
+// Don't read a screen mid-repaint: if data arrived very recently, retry shortly…
+const MIN_SETTLE_MS = 200;
+// …but never starve when repaints have no pauses at all.
+const MAX_SETTLE_SKIPS = 3;
+
+// Consecutive agreeing reads required before leaving "working".
+const CONFIRM_TICKS = 2;
+// The no-match fallback is weaker evidence — require one more.
+const FALLBACK_CONFIRM_TICKS = 3;
+
+// How many screen rows (from the bottom, after trimming trailing blanks) to classify.
+const ROWS_EXAMINED = 10;
+
+const DEFAULT_COLS = 120;
+const DEFAULT_ROWS = 30;
 
 /**
  * Detects Claude Code session state.
@@ -22,113 +48,230 @@ const QUIET_DELAY_MS = 1500;
  *   - "done"         — session exited (handled externally via onExit)
  *
  * Strategy:
+ *   - All PTY output is fed into a headless xterm instance, so classification
+ *     reads the rendered screen — the same thing the user sees. Claude Code
+ *     redraws its UI with cursor positioning rather than newlines, so line
+ *     structure only exists after terminal emulation; regexing the raw byte
+ *     stream cannot recover it.
  *   - Starts as "idle"
- *   - Flips to "working" when user sends input (markUserInput)
- *   - While output is flowing, stays "working" — no classification attempted
- *   - Once output goes quiet (no data for QUIET_DELAY_MS), classifies based on last lines:
+ *   - Flips to "working" instantly when user sends input (markUserInput)
+ *   - Polls the bottom screen rows every CLASSIFY_INTERVAL_MS in EVERY state
+ *     (output flow can't be used as a signal — Claude Code repaints
+ *     continuously even when waiting at a prompt; and prompts can be answered
+ *     via inputs invisible to us, like mouse clicks or remote control):
+ *     - Working indicator ("esc to interrupt", active spinner) → "working"
  *     - Permission/confirmation prompt → "needs-input"
  *     - Main prompt (❯) or completion status → "idle"
- *     - Active spinner (· / ✶ / ✽) or "esc to interrupt" → stays "working"
- *     - None of the above → defaults to "idle" (no-match fallback)
+ *     - None of the above → "idle" (no-match fallback)
+ *   - Any polled transition needs consecutive agreeing reads, so a single
+ *     half-drawn frame can't flip the state.
  */
 class StateDetector {
-  private recentOutput: string = '';
-  private quietTimer: ReturnType<typeof setTimeout> | null = null;
+  private terminal: Terminal;
+  private tickTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly onStateChange: (state: SessionState) => void;
   private readonly onTransition: ((detail: TransitionDetail) => void) | null;
   private currentState: SessionState = 'idle';
+  private disposed = false;
+  private lastDataAt = 0;
+  private settleSkips = 0;
+  private pendingState: SessionState | null = null;
+  private pendingCount = 0;
 
   constructor(
     onStateChange: (state: SessionState) => void,
     onTransition?: (detail: TransitionDetail) => void,
+    dims?: { cols: number; rows: number },
   ) {
     this.onStateChange = onStateChange;
     this.onTransition = onTransition || null;
+    this.terminal = new Terminal({
+      cols: dims?.cols ?? DEFAULT_COLS,
+      rows: dims?.rows ?? DEFAULT_ROWS,
+      scrollback: 0,
+      // The buffer read API is behind this flag in headless builds
+      allowProposedApi: true,
+    });
+    this.scheduleTick(CLASSIFY_INTERVAL_MS);
   }
 
   markUserInput(): void {
+    if (this.disposed) return;
     if (this.currentState !== 'working') {
-      const prev = this.currentState;
       this.currentState = 'working';
       this.onStateChange('working');
       // Don't log working transitions per user request
     }
+    // New input means the screen is about to change — restart the
+    // confirmation streak and give Claude Code time to repaint.
+    this.pendingState = null;
+    this.pendingCount = 0;
+    this.settleSkips = 0;
+    this.scheduleTick(FIRST_CLASSIFY_DELAY_MS);
   }
 
   feed(data: string): void {
-    if (this.currentState !== 'working') return;
+    if (this.disposed) return;
 
-    this.recentOutput += data;
-    if (this.recentOutput.length > 4096) {
-      this.recentOutput = this.recentOutput.slice(-2048);
-    }
-
-    // Reset the quiet timer — output is still flowing, so we're definitely working
-    if (this.quietTimer) {
-      clearTimeout(this.quietTimer);
-    }
-
-    this.quietTimer = setTimeout(() => {
-      this.classify();
-    }, QUIET_DELAY_MS);
+    // Always keep the screen current, even outside "working" — otherwise
+    // later classifications would see a stale or half-drawn frame.
+    this.terminal.write(data);
+    this.lastDataAt = Date.now();
   }
 
-  /** Called once output has been quiet for QUIET_DELAY_MS. Classify the final state. */
-  private classify(): void {
-    if (this.currentState !== 'working') return;
+  resize(cols: number, rows: number): void {
+    if (this.disposed) return;
+    this.terminal.resize(cols, rows);
+  }
 
-    const stripped = this.stripAnsi(this.recentOutput);
-    const lastLines = stripped.split('\n').slice(-10);
+  private scheduleTick(delay: number): void {
+    if (this.tickTimer) {
+      clearTimeout(this.tickTimer);
+    }
+    this.tickTimer = setTimeout(() => {
+      this.tick();
+    }, delay);
+  }
 
-    // 1. Check for input/permission prompts first (highest priority)
+  private tick(): void {
+    if (this.disposed) return;
+
+    // A repaint may be in progress — look again in a moment rather than
+    // reading a half-drawn frame. Never skip forever, though: Claude Code
+    // can repaint with no pauses at all.
+    const sinceData = Date.now() - this.lastDataAt;
+    if (sinceData < MIN_SETTLE_MS && this.settleSkips < MAX_SETTLE_SKIPS) {
+      this.settleSkips++;
+      this.scheduleTick(MIN_SETTLE_MS);
+      return;
+    }
+    this.settleSkips = 0;
+
+    this.classifyOnce();
+    this.scheduleTick(CLASSIFY_INTERVAL_MS);
+  }
+
+  /** One read of the screen; transitions only after enough agreeing reads. */
+  private classifyOnce(): void {
+    const lastLines = this.screenLines();
+
+    // Blank screen carries no information (e.g. just cleared) — wait.
+    if (lastLines.length === 0) {
+      this.pendingState = null;
+      this.pendingCount = 0;
+      return;
+    }
+
+    // 1. Working indicators visible on the rendered screen mean Claude is
+    // active — Claude Code erases them when it finishes. This can also move
+    // us INTO working (e.g. a prompt answered via mouse, or remote control).
+    const workingMatch = this.findWorkingIndicator(lastLines);
+    if (workingMatch) {
+      this.propose('working', lastLines, workingMatch, CONFIRM_TICKS);
+      return;
+    }
+
+    // 2. Check for input/permission prompts (highest priority)
     const inputMatch = this.findInputPromptMatch(lastLines);
     if (inputMatch) {
-      const prev = this.currentState;
-      this.recentOutput = '';
-      this.currentState = 'needs-input';
-      this.onStateChange('needs-input');
-      this.emitTransition(prev, 'needs-input', lastLines, inputMatch, 'settle');
+      this.propose('needs-input', lastLines, inputMatch, CONFIRM_TICKS);
       return;
     }
 
-    // 2. Check for idle indicators
+    // 3. Check for idle indicators
     const idleMatch = this.findIdleMatch(lastLines);
     if (idleMatch) {
-      const prev = this.currentState;
-      this.recentOutput = '';
-      this.currentState = 'idle';
-      this.onStateChange('idle');
-      this.emitTransition(prev, 'idle', lastLines, idleMatch, 'settle');
+      this.propose('idle', lastLines, idleMatch, CONFIRM_TICKS);
       return;
     }
 
-    // 3. If a spinner or "esc to interrupt" is present, Claude is still active
-    if (this.hasSpinner(lastLines) || this.lastWorkingContextIndex(lastLines) >= 0) {
+    // 4. No match and no working indicators — probably idle, but weak evidence
+    this.propose('idle', lastLines, 'no-match fallback', FALLBACK_CONFIRM_TICKS);
+  }
+
+  private propose(state: SessionState, lines: string[], pattern: string, needed: number): void {
+    // Screen agrees with what we already report — nothing to do. (Also keeps
+    // us from fighting a manual correction while the screen is unchanged.)
+    if (state === this.currentState) {
+      this.pendingState = null;
+      this.pendingCount = 0;
       return;
     }
-
-    // 4. No match and no working indicators — output stopped, force transition to idle
-    {
-      const prev = this.currentState;
-      this.recentOutput = '';
-      this.currentState = 'idle';
-      this.onStateChange('idle');
-      this.emitTransition(prev, 'idle', lastLines, 'no-match fallback', 'settle');
+    if (this.pendingState === state) {
+      this.pendingCount++;
+    } else {
+      this.pendingState = state;
+      this.pendingCount = 1;
     }
+    if (this.pendingCount >= needed) {
+      this.pendingState = null;
+      this.pendingCount = 0;
+      this.transitionTo(state, lines, pattern);
+    }
+  }
+
+  /**
+   * Read the visible screen, joining soft-wrapped rows back into logical lines
+   * (so prose wrapped at the terminal width isn't mistaken for short status-bar
+   * lines). Drops trailing blank lines, returns the last few.
+   */
+  private screenLines(): string[] {
+    const buffer = this.terminal.buffer.active;
+    const lines: string[] = [];
+    for (let y = 0; y < buffer.length; y++) {
+      const line = buffer.getLine(y);
+      if (!line) continue;
+      // Keep right padding while joining — wrapped rows are full-width and a
+      // trailing space at the wrap point is real content.
+      const text = line.translateToString(false);
+      if (line.isWrapped && lines.length > 0) {
+        lines[lines.length - 1] += text;
+      } else {
+        lines.push(text);
+      }
+    }
+    for (let i = 0; i < lines.length; i++) {
+      lines[i] = lines[i].replace(/\s+$/, '');
+    }
+    while (lines.length > 0 && lines[lines.length - 1] === '') {
+      lines.pop();
+    }
+    return lines.slice(-ROWS_EXAMINED);
+  }
+
+  private transitionTo(to: SessionState, lines: string[], matchedPattern: string): void {
+    const prev = this.currentState;
+    this.currentState = to;
+    this.onStateChange(to);
+    this.emitTransition(prev, to, lines, matchedPattern, 'settle');
+  }
+
+  /** Return the working indicator visible on screen, or null */
+  private findWorkingIndicator(lines: string[]): string | null {
+    for (const line of lines) {
+      const trimmed = line.trim();
+      // Status bar shown while the agent runs: "✶ Puttering… (esc to interrupt …)".
+      // Length guard: prose merely mentioning the phrase re-joins into lines
+      // longer than a status row after wrap merging.
+      if (trimmed.length <= 100 && /esc\s*to\s*interrupt/i.test(trimmed)) {
+        return 'esc to interrupt';
+      }
+      // Active progress spinner: · Verbing… / ✶ Verbing… / ✻ Verbing… etc.
+      if (/^[·✢✳✶✻✽*+]\s+\S+…/.test(trimmed)) return 'spinner';
+    }
+    return null;
   }
 
   /** Find which input prompt pattern matched, return its name or null */
   private findInputPromptMatch(lines: string[]): string | null {
-    // Space-tolerant patterns: ANSI stripping can collapse spaces,
-    // so we match with \s* where spaces may be missing
     const patterns: [string, RegExp][] = [
       ['y/n prompt', /\(y\/n\)\s*$/i],
       ['(Y)es confirmation', /\(Y\)es\b/],
       ['yes/no text', /yes\s*\/\s*no/i],
       ['generic > prompt', /^>\s*$/],
-      // Numbered choice: ❯1.Yes or ❯ 1. Yes or › 1. Yes
+      // Numbered choice: ❯ 1. Yes or › 1. Yes
       ['numbered choice list', /^[›❯>]\s*\d+\.\s*/],
-      // Standalone numbered items: 2.Yes or 2. Yes — only matched if permission context present (checked below)
+      // Standalone numbered items: 2. Yes — only matched if permission context present (checked below)
       ['numbered option', /^\d+\.\s*(Yes|No|Allow|Deny|Accept|Reject)\b/i],
       ['Do you want to', /Do\s*you\s*want\s*to/i],
       ['Would you like to proceed', /Would\s*you\s*like\s*to\s*proceed/i],
@@ -164,39 +307,24 @@ class StateDetector {
 
   /** Find which idle pattern matched, return its name or null */
   private findIdleMatch(lines: string[]): string | null {
-    let idleMatchIndex = -1;
     let idleMatchName: string | null = null;
 
-    for (let i = 0; i < lines.length; i++) {
-      const trimmed = lines[i].trim();
+    for (const line of lines) {
+      const trimmed = line.trim();
       // Main prompt: ❯ alone on the line (not followed by a digit = numbered list)
       if (/^❯\s*$/.test(trimmed)) {
-        idleMatchIndex = i;
         idleMatchName = 'main prompt ❯ (empty)';
       }
-      // ❯ followed by non-digit text (user typing) — but NOT ❯1. or ❯ 1.
+      // ❯ followed by non-digit text (user typing) — but NOT ❯ 1.
       else if (/^❯\s+\S/.test(trimmed) && !/^❯\s*\d+\./.test(trimmed)) {
-        idleMatchIndex = i;
         idleMatchName = 'main prompt ❯ (with text)';
       }
       else if (/^✻\s*\S+.*for\s*\d/.test(trimmed) || /Crunched?\s*for\s*\d/i.test(trimmed) || /Cooked?\s*for\s*\d/i.test(trimmed)) {
-        idleMatchIndex = i;
         idleMatchName = 'completion status ✻';
       }
       else if (/\?\s*for\s*shortcuts/i.test(trimmed)) {
-        idleMatchIndex = i;
         idleMatchName = 'shortcuts hint';
       }
-    }
-
-    if (idleMatchIndex === -1) return null;
-
-    // "esc to interrupt" only appears when Claude is actively working.
-    // If it appears AFTER the idle match, the idle prompt is a stale screen redraw.
-    // If the idle match comes after it, Claude has genuinely transitioned to idle.
-    const lastWorkingIndex = this.lastWorkingContextIndex(lines);
-    if (lastWorkingIndex > idleMatchIndex) {
-      return null;
     }
 
     return idleMatchName;
@@ -213,25 +341,6 @@ class StateDetector {
     });
   }
 
-  /** Return the last line index containing a working-state indicator, or -1 */
-  private lastWorkingContextIndex(lines: string[]): number {
-    for (let i = lines.length - 1; i >= 0; i--) {
-      if (/esc\s*to\s*interrupt/i.test(lines[i].trim())) return i;
-    }
-    return -1;
-  }
-
-  /** Check if any recent line starts with an active spinner/progress indicator */
-  private hasSpinner(lines: string[]): boolean {
-    // Only check last 3 lines — spinner is always near the bottom
-    const tail = lines.slice(-3);
-    return tail.some(line => {
-      const trimmed = line.trim();
-      // · Verbing… or ✶ Verbing… or ✽ Verbing… — active progress spinner
-      return /^[·✶✽]\s+\S+…/.test(trimmed);
-    });
-  }
-
   private emitTransition(
     from: SessionState,
     to: SessionState,
@@ -244,24 +353,13 @@ class StateDetector {
     }
   }
 
-  private stripAnsi(str: string): string {
-    return str
-      // CSI cursor-forward sequences: replace with a space to preserve word boundaries
-      .replace(/\x1b\[\d*C/g, ' ')
-      // CSI sequences: \x1b[ with optional intermediate bytes (?, !, >) then params then final byte
-      .replace(/\x1b\[[?!>]*[0-9;]*[a-zA-Z~@`]/g, '')
-      // OSC sequences: \x1b] ... BEL or ST
-      .replace(/\x1b\].*?(\x07|\x1b\\)/g, '')
-      // Charset/designate sequences: \x1b( \x1b) \x1b# etc.
-      .replace(/\x1b[()#][0-9A-Za-z]/g, '')
-      // Other single-char escape sequences: \x1bM, \x1b=, \x1b>, etc.
-      .replace(/\x1b[A-Za-z=<>]/g, '');
-  }
-
   dispose(): void {
-    if (this.quietTimer) {
-      clearTimeout(this.quietTimer);
+    if (this.disposed) return;
+    this.disposed = true;
+    if (this.tickTimer) {
+      clearTimeout(this.tickTimer);
     }
+    this.terminal.dispose();
   }
 }
 

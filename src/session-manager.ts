@@ -27,6 +27,9 @@ export interface Session {
 
 let nextId = 1;
 
+const INITIAL_COLS = 120;
+const INITIAL_ROWS = 30;
+
 class SessionManager extends EventEmitter {
   sessions: Map<string, Session> = new Map();
   private transitionLogger: TransitionLogger;
@@ -53,8 +56,8 @@ class SessionManager extends EventEmitter {
 
     const ptyProcess = pty.spawn('claude', args, {
       name: 'xterm-256color',
-      cols: 120,
-      rows: 30,
+      cols: INITIAL_COLS,
+      rows: INITIAL_ROWS,
       cwd,
       env,
     });
@@ -79,6 +82,7 @@ class SessionManager extends EventEmitter {
           trigger: detail.trigger,
         });
       },
+      { cols: INITIAL_COLS, rows: INITIAL_ROWS },
     );
 
     const session: Session = {
@@ -131,7 +135,12 @@ class SessionManager extends EventEmitter {
 
   resize(id: string, cols: number, rows: number): void {
     const session = this.sessions.get(id);
-    if (session && session.status !== 'done') session.ptyProcess.resize(cols, rows);
+    if (session && session.status !== 'done') {
+      session.ptyProcess.resize(cols, rows);
+      // Keep the detector's headless screen in sync so wrapping matches
+      // what the real terminal renders.
+      session.stateDetector.resize(cols, rows);
+    }
   }
 
   getBuffer(id: string): string {
