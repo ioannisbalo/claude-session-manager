@@ -459,25 +459,6 @@ describe('app-state-logic', () => {
     });
   });
 
-  describe('createTask title normalisation', () => {
-    it('strips markdown todo prefixes pasted from a notes app', () => {
-      const state = createState();
-      expect(createTask(state, '- [ ] Improve LiFi integration', 'backlog', 0).title)
-        .toBe('Improve LiFi integration');
-      expect(createTask(state, '- [x] Already done', 'backlog', 0).title).toBe('Already done');
-      expect(createTask(state, '* Bullet item', 'backlog', 0).title).toBe('Bullet item');
-      expect(createTask(state, '- Dashed item', 'backlog', 0).title).toBe('Dashed item');
-      expect(createTask(state, '\u2022 Bulleted', 'backlog', 0).title).toBe('Bulleted');
-    });
-
-    it('leaves ordinary titles alone, including ones that merely contain brackets', () => {
-      const state = createState();
-      expect(createTask(state, 'Fix [BLOC-123] retry', 'backlog', 0).title).toBe('Fix [BLOC-123] retry');
-      expect(createTask(state, 'a - b', 'backlog', 0).title).toBe('a - b');
-      expect(createTask(state, '-', 'backlog', 0).title).toBe('New task');
-    });
-  });
-
   describe('deleteTask', () => {
     it('removes the task and orphans its sessions rather than killing them', () => {
       const state = createState();

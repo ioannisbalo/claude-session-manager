@@ -189,7 +189,7 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
 
   function startTaskRename(task: Task, titleSpan: HTMLSpanElement): void {
     startRenameInput(titleSpan, task.title, (newTitle) => {
-      task.title = TaskLogic.normalizeTaskTitle(newTitle) || task.title;
+      task.title = newTitle;
       scheduleSave();
     });
   }
