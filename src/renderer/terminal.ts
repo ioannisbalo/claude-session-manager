@@ -47,6 +47,11 @@ class TerminalWrapper {
       lineHeight: 1.2,
       cursorBlink: true,
       allowProposedApi: true,
+      // Claude Code enables mouse reporting (DECSET 1000/1006) while its TUI is
+      // up, so xterm forwards mouse events to the PTY instead of selecting text.
+      // On macOS the Option+drag override is gated behind this option, which
+      // xterm defaults to false — without it there is no way to select at all.
+      macOptionClickForcesSelection: true,
     });
 
     this.fitAddon = new FitAddon.FitAddon();
