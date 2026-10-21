@@ -517,3 +517,38 @@ body.resizing .pane-divider {
 .xterm {
   padding: 8px;
 }
+
+/* Sidebar sections (Doing / Backlog / Done / Loose) */
+.sidebar-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted, #7f849c);
+  cursor: default;
+}
+
+.sidebar-section-header .section-label { flex: 1; }
+.sidebar-section-header .section-count { opacity: 0.7; }
+.sidebar-section-header.collapsible { cursor: pointer; }
+.sidebar-section-header.collapsible:hover { color: var(--text, #cdd6f4); }
+
+.section-add-btn,
+.task-status-btn {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 4px;
+  font-size: 12px;
+}
+
+.section-add-btn:hover,
+.task-status-btn:hover { color: var(--accent); }
+
+/* Rename stays out of the way until the row is hovered. */
+.session-group-header .group-rename-btn { visibility: hidden; }
+.session-group-header:hover .group-rename-btn { visibility: visible; }

@@ -337,6 +337,119 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
 
   // --- Render ---
 
+  const STATUS_BUTTON: Record<TaskStatus, { glyph: string; title: string }> = {
+    backlog: { glyph: '▶', title: 'Pick up' },
+    doing: { glyph: '✓', title: 'Mark done' },
+    done: { glyph: '↺', title: 'Reopen' },
+  };
+
+  /** Section header row. `createIn` is the status a `+` here would create. */
+  function sectionHeader(label: string, count: number, createIn: TaskStatus | null): HTMLLIElement {
+    const li = document.createElement('li');
+    li.className = 'sidebar-section-header';
+    li.innerHTML = `
+      <span class="section-label">${label}</span>
+      <span class="section-count">${count > 0 ? count : ''}</span>
+    `;
+    if (createIn) {
+      const add = document.createElement('button');
+      add.className = 'section-add-btn';
+      add.title = `New ${label.toLowerCase()} task`;
+      add.textContent = '+';
+      li.appendChild(add);
+    }
+    return li;
+  }
+
+  function createTaskHeaderLi(task: Task): HTMLLIElement {
+    const header = document.createElement('li');
+    header.className = 'session-group-header';
+    header.dataset.taskId = task.id;
+
+    const btn = STATUS_BUTTON[task.status];
+    header.innerHTML = `
+      <span class="group-collapse-icon">${task.collapsed ? '▸' : '▾'}</span>
+      <span class="group-name">${task.title}</span>
+      <button class="task-status-btn" title="${btn.title}">${btn.glyph}</button>
+      <button class="group-rename-btn" title="Rename task">✎</button>
+      <span class="group-count">${task.sessionIds.length || ''}</span>
+    `;
+
+    (header.querySelector('.task-status-btn') as HTMLElement).addEventListener('click', (e: MouseEvent) => {
+      e.stopPropagation();
+      advanceTaskStatus(task);
+      renderSidebar();
+      scheduleSave();
+    });
+
+    (header.querySelector('.group-rename-btn') as HTMLElement).addEventListener('click', (e: MouseEvent) => {
+      e.stopPropagation();
+      startTaskRename(task, header.querySelector('.group-name') as HTMLSpanElement);
+    });
+
+    header.addEventListener('click', (e: MouseEvent) => {
+      const cls = (e.target as HTMLElement).classList;
+      if (cls.contains('group-rename-btn') || cls.contains('task-status-btn')) return;
+      if (cls.contains('session-rename-input')) return;
+      task.collapsed = !task.collapsed;
+      renderSidebar();
+      scheduleSave();
+    });
+
+    // Dropping a session on a task attaches it. There are no above/below zones:
+    // order is derived, so position is not something a drop can express.
+    header.addEventListener('dragover', (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      clearDropIndicators();
+      header.classList.add('drop-target-merge');
+    });
+
+    header.addEventListener('dragleave', () => {
+      header.classList.remove('drop-target-merge');
+    });
+
+    header.addEventListener('drop', (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      clearDropIndicators();
+      const draggedId = e.dataTransfer!.getData('text/plain');
+      if (!draggedId || !sessions.has(draggedId)) return;
+      handleDrop(draggedId, task.id, 'merge', true);
+    });
+
+    return header;
+  }
+
+  function appendSection(
+    list: HTMLElement,
+    label: string,
+    tasks: Task[],
+    status: TaskStatus,
+    collapsed: boolean,
+  ): void {
+    const header = sectionHeader(label, tasks.length, status);
+    if (status === 'backlog') {
+      header.classList.add('collapsible');
+      header.addEventListener('click', (e: MouseEvent) => {
+        if ((e.target as HTMLElement).classList.contains('section-add-btn')) return;
+        toggleBacklogCollapsed();
+        renderSidebar();
+      });
+    }
+    list.appendChild(header);
+    if (collapsed) return;
+
+    for (const task of tasks) {
+      list.appendChild(createTaskHeaderLi(task));
+      if (task.collapsed) continue;
+      for (const sid of task.sessionIds) {
+        const session = sessions.get(sid);
+        if (session) list.appendChild(createSessionLi(sid, session, true));
+      }
+    }
+  }
+
   function renderSidebar(): void {
     if (dragInProgress) return;
 
@@ -346,84 +459,24 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
     const list = document.getElementById('session-list')!;
     list.innerHTML = '';
 
-    for (const entry of appState.sidebarOrder) {
-      if (entry.type === 'session') {
-        const session = sessions.get(entry.id);
-        if (!session) continue;
-        list.appendChild(createSessionLi(entry.id, session, false));
-      } else {
-        const group = appState.tasks.get(entry.id);
-        if (!group) continue;
+    const sections = sidebarSections();
 
-        // Group header
-        const header = document.createElement('li');
-        header.className = 'session-group-header';
-        header.dataset.groupId = group.id;
-        header.innerHTML = `
-          <span class="group-collapse-icon">${group.collapsed ? '▸' : '▾'}</span>
-          <span class="group-name">${group.title}</span>
-          <button class="group-rename-btn" title="Rename group">✎</button>
-          <span class="group-count">${group.sessionIds.length}</span>
-        `;
+    appendSection(list, 'Doing', sections.doing, 'doing', false);
+    appendSection(list, 'Backlog', sections.backlog, 'backlog', backlogCollapsed);
+    if (sections.done.length > 0) appendSection(list, 'Done', sections.done, 'done', false);
 
-        (header.querySelector('.group-rename-btn') as HTMLElement).addEventListener('click', (e: MouseEvent) => {
-          e.stopPropagation();
-          const nameSpan = header.querySelector('.group-name') as HTMLSpanElement;
-          startTaskRename(group, nameSpan);
-        });
-
-        header.addEventListener('click', (e: MouseEvent) => {
-          if ((e.target as HTMLElement).classList.contains('group-rename-btn')) return;
-          if ((e.target as HTMLElement).classList.contains('session-rename-input')) return;
-          group.collapsed = !group.collapsed;
-          renderSidebar();
-          scheduleSave();
-        });
-
-        // Group header drag events (accept drops)
-        header.addEventListener('dragover', (e: DragEvent) => {
-          e.preventDefault();
-          e.stopPropagation();
-          clearDropIndicators();
-          const zone = getDropZone(e, header);
-          if (zone === 'merge') header.classList.add('drop-target-merge');
-          else if (zone === 'above') header.classList.add('drop-target-above');
-          else header.classList.add('drop-target-below');
-        });
-
-        header.addEventListener('dragleave', () => {
-          header.classList.remove('drop-target-merge', 'drop-target-above', 'drop-target-below');
-        });
-
-        header.addEventListener('drop', (e: DragEvent) => {
-          e.preventDefault();
-          e.stopPropagation();
-          clearDropIndicators();
-          const draggedId = e.dataTransfer!.getData('text/plain');
-          if (!draggedId || !sessions.has(draggedId)) return;
-          const zone = getDropZone(e, header);
-          handleDrop(draggedId, group.id, zone, true);
-        });
-
-        list.appendChild(header);
-
-        // Render children if not collapsed
-        if (!group.collapsed) {
-          for (const sid of group.sessionIds) {
-            const session = sessions.get(sid);
-            if (!session) continue;
-            list.appendChild(createSessionLi(sid, session, true));
-          }
-        }
+    if (sections.loose.length > 0) {
+      list.appendChild(sectionHeader('Loose sessions', sections.loose.length, null));
+      for (const id of sections.loose) {
+        const session = sessions.get(id);
+        if (session) list.appendChild(createSessionLi(id, session, false));
       }
     }
 
-    // List-level drop handler: drop onto empty area to ungroup
+    // Drop onto empty list area detaches a session from its task. Looseness is
+    // derived from "belongs to no task", so detaching is the whole operation.
     list.ondragover = (e: DragEvent) => {
-      // Only handle if not over a child element
-      if (e.target === list) {
-        e.preventDefault();
-      }
+      if (e.target === list) e.preventDefault();
     };
 
     list.ondrop = (e: DragEvent) => {
@@ -432,11 +485,7 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
       clearDropIndicators();
       const draggedId = e.dataTransfer!.getData('text/plain');
       if (!draggedId || !sessions.has(draggedId)) return;
-
-      // Remove from group/appState.sidebarOrder and add as standalone at end
       removeSidebarEntry(draggedId);
-      pruneDeadSessions();
-      appState.sidebarOrder.push({ type: 'session', id: draggedId });
       renderSidebar();
       scheduleSave();
     };

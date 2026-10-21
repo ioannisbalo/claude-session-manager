@@ -32,6 +32,29 @@ function removeSidebarEntry(sessionId: string): void {
   TaskLogic.removeSidebarEntry(appState, sessionId);
 }
 
+/**
+ * Backlog starts collapsed on every launch — the spec calls it "a backlog, not
+ * a work surface". Deliberately not persisted: resetting to collapsed each
+ * launch *is* the desired default.
+ */
+let backlogCollapsed = true;
+
+function toggleBacklogCollapsed(): void {
+  backlogCollapsed = !backlogCollapsed;
+}
+
+function sidebarSections(): SidebarSections {
+  return TaskLogic.partitionSidebar(appState, liveSessionIds(), Date.now());
+}
+
+/** The contextual status button: backlog → doing → done → doing. */
+function advanceTaskStatus(task: Task): void {
+  const next: TaskStatus = task.status === 'backlog' ? 'doing'
+    : task.status === 'doing' ? 'done'
+    : 'doing';
+  TaskLogic.setTaskStatus(task, next, Date.now());
+}
+
 // --- State persistence ---
 
 function buildSavedState(pm: PaneManager): string {

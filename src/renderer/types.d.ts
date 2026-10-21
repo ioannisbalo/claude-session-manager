@@ -99,7 +99,17 @@ interface SavedState {
   layout?: unknown;
 }
 
+interface SidebarSections {
+  doing: Task[];
+  backlog: Task[];
+  done: Task[];
+  loose: string[];
+}
+
 declare const TaskLogic: {
+  createTask(state: AppState, title: string, status: TaskStatus, now: number): Task;
+  deleteTask(state: AppState, taskId: string): void;
+  partitionSidebar(state: AppState, liveSessionIds: Set<string>, now: number): SidebarSections;
   DONE_VISIBILITY_MS: number;
   SAVED_STATE_VERSION: number;
   getTaskForSession(tasks: Map<string, Task>, sessionId: string): Task | undefined;
