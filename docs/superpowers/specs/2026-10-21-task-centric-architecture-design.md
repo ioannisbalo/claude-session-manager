@@ -56,7 +56,9 @@ So this is not "add a Task entity alongside groups". It is inverting ownership �
 the task becomes the durable root and sessions become disposable children. The
 `sessionIds.length <= 1` branch *is* the ephemeral lifetime; deleting it is the
 architectural change, and a zero-session task becoming legal is what turns it into
-a todo item.
+a todo item. The rule is encoded **twice**: `enforceGroupIntegrity` applies it at
+runtime and `reconstructFromSaved` re-applies it on load via `remappedIds.length >= 2`.
+Both must go, or state reloads would silently undo the inversion.
 
 Tasks supersede manual groups entirely. Drag-and-drop grouping is replaced by task
 membership, so pane grouping stops being arbitrary and becomes **derived from the
@@ -83,7 +85,9 @@ export interface Task {
 - `SidebarEntry`'s `{ type: 'group' }` variant is **replaced by** `{ type: 'task' }`,
   not joined by it — groups cease to exist as a concept. Loose sessions stay legal,
   so a throwaway session does not have to be filed under a task.
-- `groupCounter` is dropped. Tasks have user-supplied titles, not "Group 3".
+- `groupCounter` survives as `taskCounter`, but only to generate ids (`task-1`,
+  `task-2`) so they stay deterministic and testable. It no longer feeds titles:
+  a task created by merging two sessions is titled "New task".
 - `SavedState` gains a `version` field.
 
 ## Done-task visibility: derived, not scheduled
@@ -152,13 +156,15 @@ running app is untouched.
 **Changes:**
 
 - `SessionGroup` → `Task` with the fields above
-- Delete the `sessionIds.length <= 1` disband branch (`:44`)
+- Delete the disband rule in **both** places it lives: the `sessionIds.length <= 1`
+  branch in `enforceGroupIntegrity` (`:44`), and the `remappedIds.length >= 2` guard
+  plus its disband-fallback branch in `reconstructFromSaved`
 - Keep dead-session pruning from that function; rename to `pruneDeadSessions`
 - `SidebarEntry`: replace the `{ type: 'group' }` variant with `{ type: 'task' }`;
   loose sessions remain legal
 - Add `isTaskVisible(task, now)`
 - `SavedState` gains `version`; add v1 → v2 migration
-- Drop `groupCounter`
+- Rename `groupCounter` → `taskCounter`; it generates ids only, never titles
 
 **Tests** (extending the existing harness):
 
