@@ -11,6 +11,9 @@ import {
   buildSavedState,
   reconstructFromSaved,
   handleDrop,
+  setTaskStatus,
+  isTaskVisible,
+  DONE_VISIBILITY_MS,
 } from './app-state-logic';
 
 function createState(overrides?: Partial<AppState>): AppState {
@@ -408,7 +411,7 @@ describe('app-state-logic', () => {
         });
         const sessionIds = new Set(['s1', 's2']);
 
-        handleDrop(state, sessionIds, 's1', 's2', 'merge', false);
+        handleDrop(state, sessionIds, 's1', 's2', 'merge', false, 0);
 
         expect(state.tasks.size).toBe(1);
         const task = state.tasks.get('task-1')!;
@@ -427,7 +430,7 @@ describe('app-state-logic', () => {
         });
         const sessionIds = new Set(['s1', 's2', 's3']);
 
-        handleDrop(state, sessionIds, 's3', 's1', 'merge', false);
+        handleDrop(state, sessionIds, 's3', 's1', 'merge', false, 0);
         expect(task.sessionIds).toEqual(['s1', 's2', 's3']);
       });
 
@@ -442,7 +445,7 @@ describe('app-state-logic', () => {
         });
         const sessionIds = new Set(['s1', 's2', 's3']);
 
-        handleDrop(state, sessionIds, 's3', 'g1', 'merge', true);
+        handleDrop(state, sessionIds, 's3', 'g1', 'merge', true, 0);
         expect(task.sessionIds).toEqual(['s1', 's2', 's3']);
       });
 
@@ -450,7 +453,7 @@ describe('app-state-logic', () => {
         const state = createState({
           sidebarOrder: [{ type: 'session', id: 's1' }],
         });
-        handleDrop(state, new Set(['s1']), 's1', 's1', 'merge', false);
+        handleDrop(state, new Set(['s1']), 's1', 's1', 'merge', false, 0);
         expect(state.sidebarOrder).toEqual([{ type: 'session', id: 's1' }]);
       });
 
@@ -460,7 +463,7 @@ describe('app-state-logic', () => {
           tasks: new Map([['g1', task]]),
           sidebarOrder: [{ type: 'task', id: 'g1' }],
         });
-        handleDrop(state, new Set(['s1', 's2']), 's1', 'g1', 'merge', true);
+        handleDrop(state, new Set(['s1', 's2']), 's1', 'g1', 'merge', true, 0);
         expect(task.sessionIds).toEqual(['s1', 's2']);
       });
     });
@@ -476,7 +479,7 @@ describe('app-state-logic', () => {
         });
         const sessionIds = new Set(['s1', 's2', 's3']);
 
-        handleDrop(state, sessionIds, 's3', 's1', 'above', false);
+        handleDrop(state, sessionIds, 's3', 's1', 'above', false, 0);
         expect(state.sidebarOrder).toEqual([
           { type: 'session', id: 's3' },
           { type: 'session', id: 's1' },
@@ -494,7 +497,7 @@ describe('app-state-logic', () => {
         });
         const sessionIds = new Set(['s1', 's2', 's3']);
 
-        handleDrop(state, sessionIds, 's1', 's2', 'below', false);
+        handleDrop(state, sessionIds, 's1', 's2', 'below', false, 0);
         expect(state.sidebarOrder).toEqual([
           { type: 'session', id: 's2' },
           { type: 'session', id: 's1' },
@@ -513,7 +516,7 @@ describe('app-state-logic', () => {
         });
         const sessionIds = new Set(['s1', 's2', 's3']);
 
-        handleDrop(state, sessionIds, 's1', 'g1', 'above', true);
+        handleDrop(state, sessionIds, 's1', 'g1', 'above', true, 0);
         expect(state.sidebarOrder).toEqual([
           { type: 'session', id: 's1' },
           { type: 'task', id: 'g1' },
@@ -531,7 +534,7 @@ describe('app-state-logic', () => {
         });
         const sessionIds = new Set(['s1', 's2', 's3']);
 
-        handleDrop(state, sessionIds, 's3', 's1', 'above', false);
+        handleDrop(state, sessionIds, 's3', 's1', 'above', false, 0);
         expect(task.sessionIds).toEqual(['s3', 's1', 's2']);
       });
 
@@ -543,7 +546,7 @@ describe('app-state-logic', () => {
         });
         const sessionIds = new Set(['s1', 's2', 's3']);
 
-        handleDrop(state, sessionIds, 's3', 'g1', 'below', true);
+        handleDrop(state, sessionIds, 's3', 'g1', 'below', true, 0);
         expect(task.sessionIds).toEqual(['s1', 's2']);
         expect(state.sidebarOrder).toEqual([
           { type: 'task', id: 'g1' },
@@ -559,7 +562,7 @@ describe('app-state-logic', () => {
         });
         const sessionIds = new Set(['s1', 's2', 's3']);
 
-        handleDrop(state, sessionIds, 's2', 's3', 'below', false);
+        handleDrop(state, sessionIds, 's2', 's3', 'below', false, 0);
         // g1 had [s1, s2], s2 was dragged out → g1 keeps s1 and stays a task
         expect(state.tasks.size).toBe(1);
         expect(state.tasks.get('g1')!.sessionIds).toEqual(['s1']);
@@ -600,10 +603,77 @@ describe('app-state-logic', () => {
         sidebarOrder: [{ type: 'task', id: 't1' }, { type: 'session', id: 's1' }],
       });
 
-      handleDrop(state, new Set(['s1']), 's1', 't1', 'merge', true);
+      handleDrop(state, new Set(['s1']), 's1', 't1', 'merge', true, 0);
 
       expect(state.tasks.get('t1')!.sessionIds).toEqual(['s1']);
       expect(state.sidebarOrder).toEqual([{ type: 'task', id: 't1' }]);
+    });
+  });
+
+  describe('setTaskStatus', () => {
+    it('stamps completedAt when a task becomes done', () => {
+      const task = makeTask('t1', ['s1']);
+      setTaskStatus(task, 'done', 1000);
+      expect(task.status).toBe('done');
+      expect(task.completedAt).toBe(1000);
+    });
+
+    it('clears completedAt when a done task is reopened', () => {
+      const task = makeTask('t1', ['s1']);
+      setTaskStatus(task, 'done', 1000);
+      setTaskStatus(task, 'doing', 2000);
+      expect(task.status).toBe('doing');
+      expect(task.completedAt).toBeUndefined();
+    });
+
+    it('does not re-stamp completedAt when already done', () => {
+      const task = makeTask('t1', ['s1']);
+      setTaskStatus(task, 'done', 1000);
+      setTaskStatus(task, 'done', 5000);
+      expect(task.completedAt).toBe(1000);
+    });
+  });
+
+  describe('isTaskVisible', () => {
+    it('always shows backlog and doing tasks', () => {
+      const backlog = { ...makeTask('t1', []), status: 'backlog' as const };
+      const doing = makeTask('t2', []);
+      expect(isTaskVisible(backlog, 10 ** 12)).toBe(true);
+      expect(isTaskVisible(doing, 10 ** 12)).toBe(true);
+    });
+
+    it('shows a done task just inside 24h and hides it just outside', () => {
+      const task = makeTask('t1', []);
+      setTaskStatus(task, 'done', 0);
+      expect(isTaskVisible(task, DONE_VISIBILITY_MS - 1)).toBe(true);
+      expect(isTaskVisible(task, DONE_VISIBILITY_MS)).toBe(true);
+      expect(isTaskVisible(task, DONE_VISIBILITY_MS + 1)).toBe(false);
+    });
+
+    it('shows a done task that has no completedAt rather than vanishing it', () => {
+      const task = { ...makeTask('t1', []), status: 'done' as const };
+      expect(isTaskVisible(task, 10 ** 12)).toBe(true);
+    });
+
+    it('shows a done task whose completedAt is in the future', () => {
+      const task = makeTask('t1', []);
+      setTaskStatus(task, 'done', 10 ** 12);
+      expect(isTaskVisible(task, 1000)).toBe(true);
+    });
+  });
+
+  describe('handleDrop task creation', () => {
+    it('stamps createdAt on a task created by merging two sessions', () => {
+      const state = createState({
+        sidebarOrder: [{ type: 'session', id: 's1' }, { type: 'session', id: 's2' }],
+      });
+
+      handleDrop(state, new Set(['s1', 's2']), 's2', 's1', 'merge', false, 4242);
+
+      const created = state.tasks.get('task-1')!;
+      expect(created.createdAt).toBe(4242);
+      expect(created.title).toBe('New task');
+      expect(created.status).toBe('doing');
     });
   });
 });

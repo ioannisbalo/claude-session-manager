@@ -36,6 +36,34 @@ export interface AppState {
   taskCounter: number;
 }
 
+/** How long a completed task stays visible before it drops out of the default view. */
+export const DONE_VISIBILITY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Move a task to a new status, maintaining completedAt as the single source of
+ * truth for the visibility window. Re-marking an already-done task does not
+ * extend its window.
+ */
+export function setTaskStatus(task: Task, status: TaskStatus, now: number): void {
+  if (status === 'done') {
+    if (task.status !== 'done') task.completedAt = now;
+  } else {
+    delete task.completedAt;
+  }
+  task.status = status;
+}
+
+/**
+ * Derived visibility — no timers, no mutation. Correct across restarts and sleep.
+ * A done task with no completedAt, or one stamped in the future, stays visible
+ * rather than silently disappearing.
+ */
+export function isTaskVisible(task: Task, now: number): boolean {
+  if (task.status !== 'done') return true;
+  if (task.completedAt === undefined) return true;
+  return now - task.completedAt <= DONE_VISIBILITY_MS;
+}
+
 export function getTaskForSession(tasks: Map<string, Task>, sessionId: string): Task | undefined {
   for (const task of tasks.values()) {
     if (task.sessionIds.includes(sessionId)) return task;
@@ -156,6 +184,7 @@ export function handleDrop(
   targetId: string,
   zone: 'above' | 'below' | 'merge',
   targetIsTask: boolean,
+  now: number,
 ): void {
   if (draggedId === targetId) return;
 
@@ -185,7 +214,7 @@ export function handleDrop(
           status: 'doing',
           sessionIds: [targetId, draggedId],
           collapsed: false,
-          createdAt: 0,
+          createdAt: now,
         };
         state.tasks.set(newTask.id, newTask);
 
