@@ -496,7 +496,7 @@ describe('app-state-logic', () => {
         ['backlog a', 'backlog', 300, []],
       ]);
 
-      const result = partitionSidebar(state, new Set(), 1000);
+      const result = partitionSidebar(state, new Set(), new Set(), 1000);
 
       expect(result.doing.map(t => t.title)).toEqual(['older doing', 'newer doing']);
       expect(result.backlog.map(t => t.title)).toEqual(['backlog a', 'backlog b']);
@@ -509,7 +509,7 @@ describe('app-state-logic', () => {
       setTaskStatus(first, 'done', 100);
       setTaskStatus(second, 'done', 200);
 
-      const result = partitionSidebar(state, new Set(), 300);
+      const result = partitionSidebar(state, new Set(), new Set(), 300);
 
       expect(result.done.map(t => t.title)).toEqual(['closed second', 'closed first']);
     });
@@ -519,8 +519,8 @@ describe('app-state-logic', () => {
       const task = createTask(state, 'old news', 'doing', 0);
       setTaskStatus(task, 'done', 0);
 
-      expect(partitionSidebar(state, new Set(), DONE_VISIBILITY_MS).done).toHaveLength(1);
-      expect(partitionSidebar(state, new Set(), DONE_VISIBILITY_MS + 1).done).toHaveLength(0);
+      expect(partitionSidebar(state, new Set(), new Set(), DONE_VISIBILITY_MS).done).toHaveLength(1);
+      expect(partitionSidebar(state, new Set(), new Set(), DONE_VISIBILITY_MS + 1).done).toHaveLength(0);
     });
 
     it('keeps a lapsed done task visible while it still has live sessions', () => {
@@ -529,7 +529,7 @@ describe('app-state-logic', () => {
       task.sessionIds = ['s1'];
       setTaskStatus(task, 'done', 0);
 
-      const result = partitionSidebar(state, new Set(['s1']), DONE_VISIBILITY_MS + 1);
+      const result = partitionSidebar(state, new Set(['s1']), new Set(['s1']), DONE_VISIBILITY_MS + 1);
 
       // Hiding it would strand s1: it is in a task, so it is not loose either.
       expect(result.done.map(t => t.title)).toEqual(['done but busy']);
@@ -539,7 +539,7 @@ describe('app-state-logic', () => {
     it('reports sessions belonging to no task as loose', () => {
       const state = stateWith([['owns s1', 'doing', 0, ['s1']]]);
 
-      const result = partitionSidebar(state, new Set(['s1', 's2', 's3']), 100);
+      const result = partitionSidebar(state, new Set(['s1', 's2', 's3']), new Set(['s1', 's2', 's3']), 100);
 
       expect(result.loose).toEqual(['s2', 's3']);
     });
@@ -551,11 +551,48 @@ describe('app-state-logic', () => {
         ['c', 'backlog', 500, []],
       ]);
 
-      const once = partitionSidebar(state, new Set(), 1000).backlog.map(t => t.id);
-      const twice = partitionSidebar(state, new Set(), 1000).backlog.map(t => t.id);
+      const once = partitionSidebar(state, new Set(), new Set(), 1000).backlog.map(t => t.id);
+      const twice = partitionSidebar(state, new Set(), new Set(), 1000).backlog.map(t => t.id);
 
       expect(once).toEqual(twice);
       expect(once).toEqual(['task-1', 'task-2', 'task-3']);
+    });
+  });
+
+  describe('done-window exemption (running vs merely known sessions)', () => {
+    it('ages out a done task whose sessions have exited', () => {
+      const state = createState();
+      const task = createTask(state, 'finished', 'doing', 0);
+      task.sessionIds = ['s1'];
+      setTaskStatus(task, 'done', 0);
+
+      // s1 is still in the renderer's map (the row is kept so it can be closed)
+      // but its process has exited, so it must not pin the task in Done.
+      const known = new Set(['s1']);
+      const running = new Set<string>();
+
+      expect(partitionSidebar(state, known, running, DONE_VISIBILITY_MS + 1).done).toEqual([]);
+    });
+
+    it('keeps a lapsed done task while a session is actually running', () => {
+      const state = createState();
+      const task = createTask(state, 'done but busy', 'doing', 0);
+      task.sessionIds = ['s1'];
+      setTaskStatus(task, 'done', 0);
+
+      const live = new Set(['s1']);
+
+      expect(partitionSidebar(state, live, live, DONE_VISIBILITY_MS + 1).done).toHaveLength(1);
+    });
+
+    it('navigation still reaches a lapsed done task\'s sessions', () => {
+      const state = createState();
+      const task = createTask(state, 'long done', 'doing', 0);
+      task.sessionIds = ['s1'];
+      setTaskStatus(task, 'done', 0);
+
+      // Not in any section, but Cmd+Arrow must still find it.
+      expect(getVisibleSessionOrder(state, new Set(['s1']))).toEqual(['s1']);
     });
   });
 

@@ -105,7 +105,7 @@ interface SidebarSections {
 declare const TaskLogic: {
   createTask(state: AppState, title: string, status: TaskStatus, now: number): Task;
   deleteTask(state: AppState, taskId: string): void;
-  partitionSidebar(state: AppState, liveSessionIds: Set<string>, now: number): SidebarSections;
+  partitionSidebar(state: AppState, knownSessionIds: Set<string>, runningSessionIds: Set<string>, now: number): SidebarSections;
   DONE_VISIBILITY_MS: number;
   SAVED_STATE_VERSION: number;
   getTaskForSession(tasks: Map<string, Task>, sessionId: string): Task | undefined;

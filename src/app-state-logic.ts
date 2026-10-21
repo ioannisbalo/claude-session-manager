@@ -93,44 +93,66 @@ function byCompletedDesc(a: Task, b: Task): number {
   return (b.completedAt ?? 0) - (a.completedAt ?? 0) || a.id.localeCompare(b.id);
 }
 
-/**
- * Split state into the four sidebar sections, already ordered. The ordering
- * rules live here rather than in render code so they are testable.
- */
-export function partitionSidebar(
-  state: AppState,
-  liveSessionIds: Set<string>,
-  now: number,
-): SidebarSections {
+/** Every task, split by status and ordered, with no visibility filtering. */
+function orderedTasks(state: AppState): { doing: Task[]; backlog: Task[]; done: Task[] } {
   const doing: Task[] = [];
   const backlog: Task[] = [];
   const done: Task[] = [];
-  const owned = new Set<string>();
 
   for (const task of state.tasks.values()) {
-    for (const sid of task.sessionIds) owned.add(sid);
-
-    if (task.status === 'doing') {
-      doing.push(task);
-    } else if (task.status === 'backlog') {
-      backlog.push(task);
-    } else {
-      // A done task whose window has lapsed still shows while it holds live
-      // sessions — hiding it would strand them, since a session inside a task
-      // is not loose and would be reachable from nowhere.
-      const hasLive = task.sessionIds.some(sid => liveSessionIds.has(sid));
-      if (isTaskVisible(task, now) || hasLive) done.push(task);
-    }
+    if (task.status === 'doing') doing.push(task);
+    else if (task.status === 'backlog') backlog.push(task);
+    else done.push(task);
   }
 
   return {
     doing: doing.sort(byCreatedAsc),
     backlog: backlog.sort(byCreatedAsc),
     done: done.sort(byCompletedDesc),
-    loose: Array.from(liveSessionIds).filter(sid => !owned.has(sid)),
   };
 }
 
+function ownedSessionIds(state: AppState): Set<string> {
+  const owned = new Set<string>();
+  for (const task of state.tasks.values()) {
+    for (const sid of task.sessionIds) owned.add(sid);
+  }
+  return owned;
+}
+
+/**
+ * Split state into the four sidebar sections, already ordered. The ordering
+ * rules live here rather than in render code so they are testable.
+ *
+ * `knownSessionIds` is every session the UI holds, including ones whose process
+ * has exited — those still need a row so they can be closed. `runningSessionIds`
+ * is the subset still alive, and only those exempt a done task from ageing out:
+ * an exited session is neither running nor at risk of being stranded, so letting
+ * it pin a task in Done would mean completed work never disappears.
+ */
+export function partitionSidebar(
+  state: AppState,
+  knownSessionIds: Set<string>,
+  runningSessionIds: Set<string>,
+  now: number,
+): SidebarSections {
+  const { doing, backlog, done } = orderedTasks(state);
+  const owned = ownedSessionIds(state);
+
+  return {
+    doing,
+    backlog,
+    done: done.filter(task =>
+      isTaskVisible(task, now) || task.sessionIds.some(sid => runningSessionIds.has(sid))),
+    loose: Array.from(knownSessionIds).filter(sid => !owned.has(sid)),
+  };
+}
+
+/**
+ * Create a task and register it. Tasks are created empty — sessions are
+ * attached afterwards, which is what makes a task a todo item rather than a
+ * container for sessions that already exist.
+ */
 export function createTask(state: AppState, title: string, status: TaskStatus, now: number): Task {
   state.taskCounter++;
   const trimmed = title.trim();
@@ -173,20 +195,27 @@ export function pruneDeadSessions(state: AppState, sessionIds: Set<string>): voi
 }
 
 /**
- * Session order for Cmd+Arrow navigation, derived from the sections. Collapse
- * is presentation only, so a collapsed task's sessions stay reachable.
+ * Session order for Cmd+Arrow navigation: Doing, then Backlog, then Done, then
+ * loose. Built from every task rather than from the visible sections — collapse
+ * is presentation only, and a done task past its display window still holds
+ * sessions that must stay reachable.
  */
 export function getVisibleSessionOrder(state: AppState, sessionIds: Set<string>): string[] {
-  // MAX_SAFE_INTEGER is deliberate: navigation must reach every task's
-  // sessions, including a done task whose display window has lapsed.
-  const sections = partitionSidebar(state, sessionIds, Number.MAX_SAFE_INTEGER);
+  const { doing, backlog, done } = orderedTasks(state);
   const result: string[] = [];
-  for (const task of [...sections.doing, ...sections.backlog, ...sections.done]) {
+
+  for (const task of [...doing, ...backlog, ...done]) {
     for (const sid of task.sessionIds) {
       if (sessionIds.has(sid)) result.push(sid);
     }
   }
-  return [...result, ...sections.loose];
+
+  const owned = ownedSessionIds(state);
+  for (const sid of sessionIds) {
+    if (!owned.has(sid)) result.push(sid);
+  }
+
+  return result;
 }
 
 /** Remove a session from whatever task holds it. It becomes loose. */

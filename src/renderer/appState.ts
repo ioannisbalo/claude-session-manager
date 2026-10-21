@@ -9,6 +9,17 @@ const appState: AppState = {
   taskCounter: 0,
 };
 let dragInProgress = false;
+/**
+ * True while an inline rename/create input is open. renderSidebar wipes the
+ * list with innerHTML = '', and detaching a focused element does not fire
+ * blur in Chromium — so a background re-render (a session changing state, say)
+ * would silently discard whatever was being typed.
+ */
+let renameInProgress = false;
+
+function setRenameInProgress(value: boolean): void {
+  renameInProgress = value;
+}
 
 /** Session ids currently alive, as the pure logic expects them. */
 function liveSessionIds(): Set<string> {
@@ -42,8 +53,25 @@ function toggleBacklogCollapsed(): void {
   backlogCollapsed = !backlogCollapsed;
 }
 
+function expandBacklog(): void {
+  backlogCollapsed = false;
+}
+
+/**
+ * Sessions whose process is still alive. onExit keeps an exited session in the
+ * map so its row can still be closed, so "known" and "running" differ — and
+ * only a running session should keep a done task pinned in the Done section.
+ */
+function runningSessionIds(): Set<string> {
+  const running = new Set<string>();
+  for (const [id, session] of sessions) {
+    if (session.status !== 'done') running.add(id);
+  }
+  return running;
+}
+
 function sidebarSections(): SidebarSections {
-  return TaskLogic.partitionSidebar(appState, liveSessionIds(), Date.now());
+  return TaskLogic.partitionSidebar(appState, liveSessionIds(), runningSessionIds(), Date.now());
 }
 
 /** The contextual status button: backlog → doing → done → doing. */

@@ -75,6 +75,15 @@ document.addEventListener('DOMContentLoaded', () => {
 document.getElementById('new-session-btn')!.addEventListener('click', createNewSession);
   document.getElementById('rename-session-btn')!.addEventListener('click', () => {
     if (!activeSessionId) return;
+    // The active session's row may be hidden inside a collapsed task or the
+    // collapsed Backlog, in which case the query below finds nothing and the
+    // button looks dead. Reveal it first.
+    const owner = getTaskForSession(activeSessionId);
+    if (owner) {
+      if (owner.collapsed) owner.collapsed = false;
+      if (owner.status === 'backlog') expandBacklog();
+      renderSidebar();
+    }
     const nameSpan = document.querySelector(`#session-list li.active .session-name`) as HTMLSpanElement | null;
     if (nameSpan) startRename(activeSessionId, nameSpan);
   });
@@ -148,6 +157,8 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
     input.value = currentName;
 
     const commit = () => {
+      if (!renameInProgress) return;   // blur after Enter must not run twice
+      setRenameInProgress(false);
       const newName = input.value.trim();
       if (newName && newName !== currentName) onCommit(newName);
       renderSidebar();
@@ -155,10 +166,11 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
 
     input.addEventListener('keydown', (e: KeyboardEvent) => {
       if (e.key === 'Enter') { e.preventDefault(); commit(); }
-      else if (e.key === 'Escape') { e.preventDefault(); renderSidebar(); }
+      else if (e.key === 'Escape') { e.preventDefault(); setRenameInProgress(false); renderSidebar(); }
     });
     input.addEventListener('blur', commit);
 
+    setRenameInProgress(true);
     nameSpan.textContent = '';
     nameSpan.appendChild(input);
     input.focus();
@@ -229,7 +241,7 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
 
   function clearDropIndicators(): void {
     const list = document.getElementById('session-list')!;
-    list.querySelectorAll('.drop-target-merge, .drop-target-above, .drop-target-below').forEach(el => {
+    list.querySelectorAll('.drop-target-merge').forEach(el => {
       el.classList.remove('drop-target-merge');
     });
   }
@@ -351,7 +363,7 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
       add.addEventListener('click', (e: MouseEvent) => {
         e.stopPropagation();
         const task = addTask(createIn);
-        if (createIn === 'backlog') backlogCollapsed = false;
+        if (createIn === 'backlog') expandBacklog();
         renderSidebar();
         // Open the new row's title straight away, so creating a task is:
         // click +, type, Enter.
@@ -440,6 +452,8 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
       const draggedId = e.dataTransfer!.getData('text/plain');
       if (!draggedId || !sessions.has(draggedId)) return;
       attachSessionToTask(draggedId, task.id);
+      renderSidebar();
+      scheduleSave();
     });
 
     return header;
@@ -449,11 +463,11 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
     list: HTMLElement,
     label: string,
     tasks: Task[],
-    status: TaskStatus,
+    createIn: TaskStatus | null,
     collapsed: boolean,
   ): void {
-    const header = sectionHeader(label, tasks.length, status);
-    if (status === 'backlog') {
+    const header = sectionHeader(label, tasks.length, createIn);
+    if (createIn === 'backlog') {
       header.classList.add('collapsible');
       header.addEventListener('click', (e: MouseEvent) => {
         if ((e.target as HTMLElement).classList.contains('section-add-btn')) return;
@@ -475,7 +489,7 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
   }
 
   function renderSidebar(): void {
-    if (dragInProgress) return;
+    if (dragInProgress || renameInProgress) return;
 
     const renameBtn = document.getElementById('rename-session-btn')!;
     renameBtn.style.display = activeSessionId ? 'inline-block' : 'none';
