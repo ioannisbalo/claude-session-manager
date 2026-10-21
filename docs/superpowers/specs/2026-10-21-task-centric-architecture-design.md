@@ -149,6 +149,26 @@ scope here.
    every other phase
 6. **Jira linkage** — store the ticket key on the task; link, never duplicate
 
+### Captured, not yet designed
+
+Raised 2026-10-21 after the first day of use. Recorded so they are not lost;
+neither has had a design pass.
+
+- **Task types**, drawn from the groups of work that actually recur: MR review,
+  research, implementation, bugfix. The point is not a label but that each type
+  is *treated differently* — what gets created, what the agent is told, and
+  whether a repo is even involved. MR review is the clearest case that it is not
+  simply "a task with a tag": it does not create a worktree so much as fetch
+  someone else's branch, and research may want no repo at all. The design
+  question is which axes vary by type: worktree strategy, the starting prompt or
+  skill, whether a session is needed, the default status flow.
+- **A fuller task creation surface** — a modal rather than the inline title
+  input, carrying a description and links. Worth noting this is not cosmetic:
+  the description is the natural source of the *starting prompt* for a task's
+  session, which is the one capability the embedded terminal was kept for (see
+  "Rejected alternatives"). The inline input stays the fast path for capture;
+  the modal is for a task you are about to work on.
+
 Phases 2–4 and 6 are intent, not specification; each gets its own design pass.
 Phase 5 is parked rather than queued — it carries no dependency in either direction.
 
