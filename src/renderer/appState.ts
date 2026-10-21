@@ -6,7 +6,6 @@
 // own: the pane layout and async session re-creation over IPC.
 const appState: AppState = {
   tasks: new Map(),
-  sidebarOrder: [],
   taskCounter: 0,
 };
 let dragInProgress = false;
@@ -28,8 +27,8 @@ function getVisibleSessionOrder(): string[] {
   return TaskLogic.getVisibleSessionOrder(appState, liveSessionIds());
 }
 
-function removeSidebarEntry(sessionId: string): void {
-  TaskLogic.removeSidebarEntry(appState, sessionId);
+function detachSession(sessionId: string): void {
+  TaskLogic.detachSession(appState, sessionId);
 }
 
 /**
@@ -63,13 +62,9 @@ function removeTask(taskId: string): void {
   TaskLogic.deleteTask(appState, taskId);
 }
 
-/**
- * Attach a session to a task, moving it off any task it already belongs to.
- * Wraps handleDrop for now; Task 5 renames the underlying function and only
- * this body changes.
- */
+/** Attach a session to a task, moving it off any task it already belongs to. */
 function attachSessionToTask(sessionId: string, taskId: string): void {
-  TaskLogic.handleDrop(appState, liveSessionIds(), sessionId, taskId, 'merge', true, Date.now());
+  TaskLogic.attachSessionToTask(appState, sessionId, taskId);
 }
 
 // --- State persistence ---
@@ -116,7 +111,6 @@ async function restoreState(pm: PaneManager): Promise<boolean> {
 
   const restored = TaskLogic.reconstructFromSaved(saved, idMap);
   appState.tasks = restored.tasks;
-  appState.sidebarOrder = restored.sidebarOrder;
   appState.taskCounter = restored.taskCounter;
 
   if (saved.layout) {

@@ -21,15 +21,12 @@ export interface SessionData {
   cwd: string;
 }
 
-export type SidebarEntry = { type: 'session'; id: string } | { type: 'task'; id: string };
-
 export const SAVED_STATE_VERSION = 2;
 
 export interface SavedState {
   version: number;
   sessions: Array<{ id: string; name: string; cwd: string }>;
   tasks: Task[];
-  sidebarOrder: SidebarEntry[];
   taskCounter: number;
   /**
    * The renderer's serialized pane layout, carried opaquely. This module has no
@@ -42,7 +39,6 @@ export interface SavedState {
 
 export interface AppState {
   tasks: Map<string, Task>;
-  sidebarOrder: SidebarEntry[];
   taskCounter: number;
 }
 
@@ -177,34 +173,37 @@ export function pruneDeadSessions(state: AppState, sessionIds: Set<string>): voi
 }
 
 /**
- * Flatten sidebar entries into an ordered list of session IDs.
+ * Session order for Cmd+Arrow navigation, derived from the sections. Collapse
+ * is presentation only, so a collapsed task's sessions stay reachable.
  */
 export function getVisibleSessionOrder(state: AppState, sessionIds: Set<string>): string[] {
+  // MAX_SAFE_INTEGER is deliberate: navigation must reach every task's
+  // sessions, including a done task whose display window has lapsed.
+  const sections = partitionSidebar(state, sessionIds, Number.MAX_SAFE_INTEGER);
   const result: string[] = [];
-  for (const entry of state.sidebarOrder) {
-    if (entry.type === 'session') {
-      if (sessionIds.has(entry.id)) result.push(entry.id);
-    } else {
-      const task = state.tasks.get(entry.id);
-      if (task) {
-        for (const sid of task.sessionIds) {
-          if (sessionIds.has(sid)) result.push(sid);
-        }
-      }
+  for (const task of [...sections.doing, ...sections.backlog, ...sections.done]) {
+    for (const sid of task.sessionIds) {
+      if (sessionIds.has(sid)) result.push(sid);
     }
   }
-  return result;
+  return [...result, ...sections.loose];
 }
 
-/**
- * Remove a session from the sidebar order and from any task it belongs to.
- */
-export function removeSidebarEntry(state: AppState, sessionId: string): void {
-  state.sidebarOrder = state.sidebarOrder.filter(e => !(e.type === 'session' && e.id === sessionId));
+/** Remove a session from whatever task holds it. It becomes loose. */
+export function detachSession(state: AppState, sessionId: string): void {
   const task = getTaskForSession(state.tasks, sessionId);
   if (task) {
     task.sessionIds = task.sessionIds.filter(id => id !== sessionId);
   }
+}
+
+/** Attach a session to a task, moving it off any task it already belongs to. */
+export function attachSessionToTask(state: AppState, sessionId: string, taskId: string): void {
+  const target = state.tasks.get(taskId);
+  if (!target) return;
+  if (target.sessionIds.includes(sessionId)) return;
+  detachSession(state, sessionId);
+  target.sessionIds.push(sessionId);
 }
 
 /**
@@ -218,24 +217,20 @@ export function buildSavedState(sessions: Map<string, SessionData>, state: AppSt
     version: SAVED_STATE_VERSION,
     sessions: savedSessions,
     tasks: Array.from(state.tasks.values()),
-    sidebarOrder: state.sidebarOrder,
     taskCounter: state.taskCounter,
   };
 }
 
 /**
- * Reconstruct tasks and sidebar order from saved state using an old→new ID mapping.
- * Returns the reconstructed AppState fields and any session IDs not placed in the sidebar.
+ * Reconstruct tasks from saved state using an old→new session ID mapping.
+ * Sidebar position is derived from status, so there is no order to rebuild.
  */
 export function reconstructFromSaved(
   saved: SavedState,
   idMap: Map<string, string>,
 ): AppState {
   const tasks = new Map<string, Task>();
-  const sidebarOrder: SidebarEntry[] = [];
 
-  // Rebuild tasks with remapped IDs. Every saved task is restored, whatever
-  // its surviving session count — a task outlives its sessions.
   for (const savedTask of saved.tasks) {
     const remappedIds = savedTask.sessionIds
       .map(id => idMap.get(id))
@@ -243,31 +238,7 @@ export function reconstructFromSaved(
     tasks.set(savedTask.id, { ...savedTask, sessionIds: remappedIds });
   }
 
-  // Rebuild sidebar order. A task entry always resolves now, so the old
-  // disband-fallback that scattered survivors as loose sessions is gone.
-  for (const entry of saved.sidebarOrder) {
-    if (entry.type === 'session') {
-      const newId = idMap.get(entry.id);
-      if (newId) sidebarOrder.push({ type: 'session', id: newId });
-    } else if (tasks.has(entry.id)) {
-      sidebarOrder.push({ type: 'task', id: entry.id });
-    }
-  }
-
-  // Find sessions not yet in sidebar (edge case)
-  const allNewIds = new Set(idMap.values());
-  const inOrder = new Set(getVisibleSessionOrder({ tasks, sidebarOrder, taskCounter: saved.taskCounter }, allNewIds));
-  for (const newId of allNewIds) {
-    if (!inOrder.has(newId)) {
-      sidebarOrder.push({ type: 'session', id: newId });
-    }
-  }
-
-  return {
-    tasks,
-    sidebarOrder,
-    taskCounter: saved.taskCounter,
-  };
+  return { tasks, taskCounter: saved.taskCounter };
 }
 
 type SavedSession = { id: string; name: string; cwd: string };
@@ -310,19 +281,6 @@ function toTask(raw: Record<string, unknown>, title: unknown, now: number): Task
   return task;
 }
 
-/**
- * v1 wrote `group` entries, v2 writes `task`. Anything else is dropped rather
- * than coerced — mapping an unknown type onto 'session' would invent a sidebar
- * entry pointing at a session that does not exist.
- */
-function toSidebarEntry(raw: Record<string, unknown>): SidebarEntry | null {
-  const { id, type } = raw;
-  if (typeof id !== 'string') return null;
-  if (type === 'session') return { type: 'session', id };
-  if (type === 'task' || type === 'group') return { type: 'task', id };
-  return null;
-}
-
 function notNull<T>(value: T | null): value is T {
   return value !== null;
 }
@@ -339,7 +297,7 @@ function notNull<T>(value: T | null): value is T {
  */
 export function migrateSavedState(raw: unknown, now: number): SavedState {
   if (!isRecord(raw)) {
-    return { version: SAVED_STATE_VERSION, sessions: [], tasks: [], sidebarOrder: [], taskCounter: 0 };
+    return { version: SAVED_STATE_VERSION, sessions: [], tasks: [], taskCounter: 0 };
   }
 
   const isV1 = Array.isArray(raw.groups) && !Array.isArray(raw.tasks);
@@ -354,88 +312,8 @@ export function migrateSavedState(raw: unknown, now: number): SavedState {
     version: SAVED_STATE_VERSION,
     sessions: asRecords(raw.sessions).map(toSession).filter(notNull),
     tasks,
-    sidebarOrder: asRecords(raw.sidebarOrder).map(toSidebarEntry).filter(notNull),
     taskCounter: typeof counter === 'number' ? counter : 0,
   };
   if (raw.layout !== undefined) migrated.layout = raw.layout;
   return migrated;
-}
-
-/**
- * Handle a drag-and-drop operation between sessions/tasks.
- */
-export function handleDrop(
-  state: AppState,
-  sessionIds: Set<string>,
-  draggedId: string,
-  targetId: string,
-  zone: 'above' | 'below' | 'merge',
-  targetIsTask: boolean,
-  now: number,
-): void {
-  if (draggedId === targetId) return;
-
-  if (zone === 'merge') {
-    if (targetIsTask) {
-      const task = state.tasks.get(targetId);
-      if (!task) return;
-      if (task.sessionIds.includes(draggedId)) return;
-      removeSidebarEntry(state, draggedId);
-      pruneDeadSessions(state, sessionIds);
-      task.sessionIds.push(draggedId);
-    } else {
-      const targetTask = getTaskForSession(state.tasks, targetId);
-      if (targetTask) {
-        if (targetTask.sessionIds.includes(draggedId)) return;
-        removeSidebarEntry(state, draggedId);
-        pruneDeadSessions(state, sessionIds);
-        targetTask.sessionIds.push(draggedId);
-      } else {
-        removeSidebarEntry(state, draggedId);
-        pruneDeadSessions(state, sessionIds);
-
-        state.taskCounter++;
-        const newTask: Task = {
-          id: `task-${state.taskCounter}`,
-          title: 'New task',
-          status: 'doing',
-          sessionIds: [targetId, draggedId],
-          collapsed: false,
-          createdAt: now,
-        };
-        state.tasks.set(newTask.id, newTask);
-
-        const targetIdx = state.sidebarOrder.findIndex(e => e.type === 'session' && e.id === targetId);
-        if (targetIdx !== -1) {
-          state.sidebarOrder[targetIdx] = { type: 'task', id: newTask.id };
-        }
-      }
-    }
-  } else {
-    removeSidebarEntry(state, draggedId);
-    pruneDeadSessions(state, sessionIds);
-
-    if (targetIsTask) {
-      const idx = state.sidebarOrder.findIndex(e => e.type === 'task' && e.id === targetId);
-      if (idx !== -1) {
-        const insertIdx = zone === 'above' ? idx : idx + 1;
-        state.sidebarOrder.splice(insertIdx, 0, { type: 'session', id: draggedId });
-      }
-    } else {
-      const targetTask = getTaskForSession(state.tasks, targetId);
-      if (targetTask) {
-        const tIdx = targetTask.sessionIds.indexOf(targetId);
-        const insertIdx = zone === 'above' ? tIdx : tIdx + 1;
-        targetTask.sessionIds.splice(insertIdx, 0, draggedId);
-      } else {
-        const idx = state.sidebarOrder.findIndex(e => e.type === 'session' && e.id === targetId);
-        if (idx !== -1) {
-          const insertIdx = zone === 'above' ? idx : idx + 1;
-          state.sidebarOrder.splice(insertIdx, 0, { type: 'session', id: draggedId });
-        }
-      }
-    }
-  }
-
-  pruneDeadSessions(state, sessionIds);
 }

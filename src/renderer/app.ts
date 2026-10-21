@@ -46,7 +46,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!session) return;
 
     sessions.set(session.id, session);
-    appState.sidebarOrder.push({ type: 'session', id: session.id });
     renderSidebar();
     switchToSession(session.id);
     scheduleSave();
@@ -124,7 +123,6 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
     const session = await window.api.createSession();
     if (!session) return;
     sessions.set(session.id, session);
-    appState.sidebarOrder.push({ type: 'session', id: session.id });
     terminalPanel.classList.add('visible');
     emptyState.style.display = 'none';
     paneManager.splitPane(paneId, direction, session.id, false);
@@ -225,23 +223,8 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
   function clearDropIndicators(): void {
     const list = document.getElementById('session-list')!;
     list.querySelectorAll('.drop-target-merge, .drop-target-above, .drop-target-below').forEach(el => {
-      el.classList.remove('drop-target-merge', 'drop-target-above', 'drop-target-below');
+      el.classList.remove('drop-target-merge');
     });
-  }
-
-  function getDropZone(e: DragEvent, el: HTMLElement): 'above' | 'below' | 'merge' {
-    const rect = el.getBoundingClientRect();
-    const y = e.clientY - rect.top;
-    const ratio = y / rect.height;
-    if (ratio < 0.25) return 'above';
-    if (ratio > 0.75) return 'below';
-    return 'merge';
-  }
-
-  function handleDrop(draggedId: string, targetId: string, zone: 'above' | 'below' | 'merge', targetIsTask: boolean): void {
-    TaskLogic.handleDrop(appState, liveSessionIds(), draggedId, targetId, zone, targetIsTask, Date.now());
-    renderSidebar();
-    scheduleSave();
   }
 
   // --- Session <li> creation ---
@@ -273,7 +256,7 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
     li.querySelector('.session-close')!.addEventListener('click', async () => {
       await window.api.killSession(id);
       sessions.delete(id);
-      removeSidebarEntry(id);
+      detachSession(id);
       pruneDeadSessions();
 
       // Remove the killed session from any pane (collapses its split).
@@ -312,14 +295,13 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
       e.preventDefault();
       e.stopPropagation();
       clearDropIndicators();
-      const zone = getDropZone(e, li);
-      if (zone === 'merge') li.classList.add('drop-target-merge');
-      else if (zone === 'above') li.classList.add('drop-target-above');
-      else li.classList.add('drop-target-below');
+      // Only a session that belongs to a task can receive a drop: dropping onto
+      // a loose session has no task to join, and tasks are created explicitly.
+      if (getTaskForSession(id)) li.classList.add('drop-target-merge');
     });
 
     li.addEventListener('dragleave', () => {
-      li.classList.remove('drop-target-merge', 'drop-target-above', 'drop-target-below');
+      li.classList.remove('drop-target-merge');
     });
 
     li.addEventListener('drop', (e: DragEvent) => {
@@ -328,8 +310,11 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
       clearDropIndicators();
       const draggedId = e.dataTransfer!.getData('text/plain');
       if (!draggedId || !sessions.has(draggedId)) return;
-      const zone = getDropZone(e, li);
-      handleDrop(draggedId, id, zone, false);
+      const target = getTaskForSession(id);
+      if (!target) return;
+      attachSessionToTask(draggedId, target.id);
+      renderSidebar();
+      scheduleSave();
     });
 
     return li;
@@ -447,7 +432,7 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
       clearDropIndicators();
       const draggedId = e.dataTransfer!.getData('text/plain');
       if (!draggedId || !sessions.has(draggedId)) return;
-      handleDrop(draggedId, task.id, 'merge', true);
+      attachSessionToTask(draggedId, task.id);
     });
 
     return header;
@@ -517,7 +502,7 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
       clearDropIndicators();
       const draggedId = e.dataTransfer!.getData('text/plain');
       if (!draggedId || !sessions.has(draggedId)) return;
-      removeSidebarEntry(draggedId);
+      detachSession(draggedId);
       renderSidebar();
       scheduleSave();
     };

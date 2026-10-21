@@ -82,11 +82,8 @@ interface Task {
   completedAt?: number;
 }
 
-type SidebarEntry = { type: 'session'; id: string } | { type: 'task'; id: string };
-
 interface AppState {
   tasks: Map<string, Task>;
-  sidebarOrder: SidebarEntry[];
   taskCounter: number;
 }
 
@@ -94,7 +91,6 @@ interface SavedState {
   version: number;
   sessions: Array<{ id: string; name: string; cwd: string }>;
   tasks: Task[];
-  sidebarOrder: SidebarEntry[];
   taskCounter: number;
   layout?: unknown;
 }
@@ -115,21 +111,13 @@ declare const TaskLogic: {
   getTaskForSession(tasks: Map<string, Task>, sessionId: string): Task | undefined;
   pruneDeadSessions(state: AppState, sessionIds: Set<string>): void;
   getVisibleSessionOrder(state: AppState, sessionIds: Set<string>): string[];
-  removeSidebarEntry(state: AppState, sessionId: string): void;
+  detachSession(state: AppState, sessionId: string): void;
+  attachSessionToTask(state: AppState, sessionId: string, taskId: string): void;
   buildSavedState(
     sessions: Map<string, { id: string; name: string; cwd: string }>,
     state: AppState,
   ): SavedState;
   reconstructFromSaved(saved: SavedState, idMap: Map<string, string>): AppState;
-  handleDrop(
-    state: AppState,
-    sessionIds: Set<string>,
-    draggedId: string,
-    targetId: string,
-    zone: 'above' | 'below' | 'merge',
-    targetIsTask: boolean,
-    now: number,
-  ): void;
   setTaskStatus(task: Task, status: TaskStatus, now: number): void;
   isTaskVisible(task: Task, now: number): boolean;
   migrateSavedState(raw: unknown, now: number): SavedState;

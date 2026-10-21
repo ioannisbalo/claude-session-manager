@@ -6,11 +6,11 @@ import {
   SessionData,
   pruneDeadSessions,
   getVisibleSessionOrder,
-  removeSidebarEntry,
+  detachSession,
+  attachSessionToTask,
   getTaskForSession,
   buildSavedState,
   reconstructFromSaved,
-  handleDrop,
   setTaskStatus,
   isTaskVisible,
   DONE_VISIBILITY_MS,
@@ -25,7 +25,6 @@ import {
 function createState(overrides?: Partial<AppState>): AppState {
   return {
     tasks: overrides?.tasks ?? new Map(),
-    sidebarOrder: overrides?.sidebarOrder ?? [],
     taskCounter: overrides?.taskCounter ?? 0,
   };
 }
@@ -60,34 +59,29 @@ describe('app-state-logic', () => {
       const task = makeTask('t1', ['s1', 's2']);
       const state = createState({
         tasks: new Map([['t1', task]]),
-        sidebarOrder: [{ type: 'task', id: 't1' }],
       });
 
       pruneDeadSessions(state, new Set());
 
       expect(state.tasks.get('t1')).toBeDefined();
       expect(state.tasks.get('t1')!.sessionIds).toEqual([]);
-      expect(state.sidebarOrder).toEqual([{ type: 'task', id: 't1' }]);
     });
 
     it('keeps a task down to a single session without unwrapping it', () => {
       const task = makeTask('t1', ['s1', 's2']);
       const state = createState({
         tasks: new Map([['t1', task]]),
-        sidebarOrder: [{ type: 'task', id: 't1' }],
       });
 
       pruneDeadSessions(state, new Set(['s1']));
 
       expect(state.tasks.get('t1')!.sessionIds).toEqual(['s1']);
-      expect(state.sidebarOrder).toEqual([{ type: 'task', id: 't1' }]);
     });
 
     it('removes dead sessions from tasks', () => {
       const task = makeTask('g1', ['s1', 's2', 's3']);
       const state = createState({
         tasks: new Map([['g1', task]]),
-        sidebarOrder: [{ type: 'task', id: 'g1' }],
       });
       // s3 no longer exists
       pruneDeadSessions(state, new Set(['s1', 's2']));
@@ -98,120 +92,32 @@ describe('app-state-logic', () => {
       const task = makeTask('g1', ['s1', 's2']);
       const state = createState({
         tasks: new Map([['g1', task]]),
-        sidebarOrder: [{ type: 'task', id: 'g1' }],
       });
       // s2 no longer exists — task has only s1, and survives as a task
       pruneDeadSessions(state, new Set(['s1']));
       expect(state.tasks.size).toBe(1);
       expect(state.tasks.get('g1')!.sessionIds).toEqual(['s1']);
-      expect(state.sidebarOrder).toEqual([{ type: 'task', id: 'g1' }]);
     });
 
     it('keeps the sidebar entry when a task has 0 remaining sessions', () => {
       const task = makeTask('g1', ['s1', 's2']);
       const state = createState({
         tasks: new Map([['g1', task]]),
-        sidebarOrder: [{ type: 'session', id: 's3' }, { type: 'task', id: 'g1' }],
       });
       // Both s1 and s2 gone — the task empties but stays put
       pruneDeadSessions(state, new Set(['s3']));
       expect(state.tasks.size).toBe(1);
       expect(state.tasks.get('g1')!.sessionIds).toEqual([]);
-      expect(state.sidebarOrder).toEqual([
-        { type: 'session', id: 's3' },
-        { type: 'task', id: 'g1' },
-      ]);
     });
 
     it('keeps tasks with 2+ members intact', () => {
       const task = makeTask('g1', ['s1', 's2', 's3']);
       const state = createState({
         tasks: new Map([['g1', task]]),
-        sidebarOrder: [{ type: 'task', id: 'g1' }],
       });
       pruneDeadSessions(state, new Set(['s1', 's2', 's3']));
       expect(state.tasks.size).toBe(1);
       expect(task.sessionIds).toEqual(['s1', 's2', 's3']);
-    });
-  });
-
-  describe('getVisibleSessionOrder', () => {
-    it('returns standalone sessions in sidebar order', () => {
-      const state = createState({
-        sidebarOrder: [
-          { type: 'session', id: 's2' },
-          { type: 'session', id: 's1' },
-        ],
-      });
-      expect(getVisibleSessionOrder(state, new Set(['s1', 's2']))).toEqual(['s2', 's1']);
-    });
-
-    it('expands tasks into their session order', () => {
-      const task = makeTask('g1', ['s2', 's3']);
-      const state = createState({
-        tasks: new Map([['g1', task]]),
-        sidebarOrder: [
-          { type: 'session', id: 's1' },
-          { type: 'task', id: 'g1' },
-        ],
-      });
-      expect(getVisibleSessionOrder(state, new Set(['s1', 's2', 's3']))).toEqual(['s1', 's2', 's3']);
-    });
-
-    it('skips sessions that no longer exist', () => {
-      const state = createState({
-        sidebarOrder: [
-          { type: 'session', id: 's1' },
-          { type: 'session', id: 's2' },
-        ],
-      });
-      expect(getVisibleSessionOrder(state, new Set(['s1']))).toEqual(['s1']);
-    });
-
-    it('skips dead sessions inside tasks', () => {
-      const task = makeTask('g1', ['s1', 's2']);
-      const state = createState({
-        tasks: new Map([['g1', task]]),
-        sidebarOrder: [{ type: 'task', id: 'g1' }],
-      });
-      expect(getVisibleSessionOrder(state, new Set(['s1']))).toEqual(['s1']);
-    });
-  });
-
-  describe('removeSidebarEntry', () => {
-    it('removes standalone session from sidebar order', () => {
-      const state = createState({
-        sidebarOrder: [
-          { type: 'session', id: 's1' },
-          { type: 'session', id: 's2' },
-        ],
-      });
-      removeSidebarEntry(state, 's1');
-      expect(state.sidebarOrder).toEqual([{ type: 'session', id: 's2' }]);
-    });
-
-    it('removes session from its task', () => {
-      const task = makeTask('g1', ['s1', 's2', 's3']);
-      const state = createState({
-        tasks: new Map([['g1', task]]),
-        sidebarOrder: [{ type: 'task', id: 'g1' }],
-      });
-      removeSidebarEntry(state, 's2');
-      expect(task.sessionIds).toEqual(['s1', 's3']);
-      // Group entry stays (pruneDeadSessions handles cleanup separately)
-      expect(state.sidebarOrder).toEqual([{ type: 'task', id: 'g1' }]);
-    });
-
-    it('does not remove task entries from sidebar', () => {
-      const state = createState({
-        sidebarOrder: [
-          { type: 'task', id: 'g1' },
-          { type: 'session', id: 's1' },
-        ],
-      });
-      removeSidebarEntry(state, 'g1');
-      // task entries are not filtered by removeSidebarEntry (only type 'session')
-      expect(state.sidebarOrder).toEqual([{ type: 'task', id: 'g1' }, { type: 'session', id: 's1' }]);
     });
   });
 
@@ -224,7 +130,6 @@ describe('app-state-logic', () => {
       const task = makeTask('g1', ['s1', 's2'], 'My Group');
       const state = createState({
         tasks: new Map([['g1', task]]),
-        sidebarOrder: [{ type: 'task', id: 'g1' }],
         taskCounter: 3,
       });
 
@@ -233,7 +138,6 @@ describe('app-state-logic', () => {
       expect(saved.sessions[0]).toEqual({ id: 's1', name: 'Project A', cwd: '/a' });
       expect(saved.tasks).toHaveLength(1);
       expect(saved.tasks[0].title).toBe('My Group');
-      expect(saved.sidebarOrder).toEqual([{ type: 'task', id: 'g1' }]);
       expect(saved.taskCounter).toBe(3);
     });
 
@@ -241,7 +145,6 @@ describe('app-state-logic', () => {
       const saved = buildSavedState(new Map(), createState());
       expect(saved.sessions).toEqual([]);
       expect(saved.tasks).toEqual([]);
-      expect(saved.sidebarOrder).toEqual([]);
     });
   });
 
@@ -251,7 +154,6 @@ describe('app-state-logic', () => {
         version: SAVED_STATE_VERSION,
         sessions: [],
         tasks: [makeTask('t1', ['old1', 'old2'])],
-        sidebarOrder: [{ type: 'task', id: 't1' }],
         taskCounter: 1,
       };
 
@@ -259,7 +161,6 @@ describe('app-state-logic', () => {
 
       expect(result.tasks.get('t1')).toBeDefined();
       expect(result.tasks.get('t1')!.sessionIds).toEqual([]);
-      expect(result.sidebarOrder).toEqual([{ type: 'task', id: 't1' }]);
     });
 
     it('restores a task with a single surviving session as a task, not a loose session', () => {
@@ -267,14 +168,12 @@ describe('app-state-logic', () => {
         version: SAVED_STATE_VERSION,
         sessions: [],
         tasks: [makeTask('t1', ['old1', 'old2'])],
-        sidebarOrder: [{ type: 'task', id: 't1' }],
         taskCounter: 1,
       };
 
       const result = reconstructFromSaved(saved, new Map([['old1', 'new1']]));
 
       expect(result.tasks.get('t1')!.sessionIds).toEqual(['new1']);
-      expect(result.sidebarOrder).toEqual([{ type: 'task', id: 't1' }]);
     });
 
     it('remaps session IDs in tasks and sidebar', () => {
@@ -285,19 +184,11 @@ describe('app-state-logic', () => {
           { id: 'old2', name: 'B', cwd: '/b' },
         ],
         tasks: [],
-        sidebarOrder: [
-          { type: 'session', id: 'old1' },
-          { type: 'session', id: 'old2' },
-        ],
         taskCounter: 0,
       };
       const idMap = new Map([['old1', 'new1'], ['old2', 'new2']]);
 
       const result = reconstructFromSaved(saved, idMap);
-      expect(result.sidebarOrder).toEqual([
-        { type: 'session', id: 'new1' },
-        { type: 'session', id: 'new2' },
-      ]);
     });
 
     it('remaps IDs inside tasks', () => {
@@ -308,7 +199,6 @@ describe('app-state-logic', () => {
           { id: 'old2', name: 'B', cwd: '/b' },
         ],
         tasks: [{ id: 'g1', title: 'Group', status: 'doing', sessionIds: ['old1', 'old2'], collapsed: true, createdAt: 0 }],
-        sidebarOrder: [{ type: 'task', id: 'g1' }],
         taskCounter: 1,
       };
       const idMap = new Map([['old1', 'new1'], ['old2', 'new2']]);
@@ -318,7 +208,6 @@ describe('app-state-logic', () => {
       const task = result.tasks.get('g1')!;
       expect(task.sessionIds).toEqual(['new1', 'new2']);
       expect(task.collapsed).toBe(true);
-      expect(result.sidebarOrder).toEqual([{ type: 'task', id: 'g1' }]);
       expect(result.taskCounter).toBe(1);
     });
 
@@ -330,7 +219,6 @@ describe('app-state-logic', () => {
           { id: 'old2', name: 'B', cwd: '/b' },
         ],
         tasks: [{ id: 'g1', title: 'Group', status: 'doing', sessionIds: ['old1', 'old2'], collapsed: false, createdAt: 0 }],
-        sidebarOrder: [{ type: 'task', id: 'g1' }],
         taskCounter: 1,
       };
       // Only old1 survived
@@ -340,7 +228,6 @@ describe('app-state-logic', () => {
       expect(result.tasks.size).toBe(1);
       // The task survives with its one remaining session, still a task
       expect(result.tasks.get('g1')!.sessionIds).toEqual(['new1']);
-      expect(result.sidebarOrder).toEqual([{ type: 'task', id: 'g1' }]);
     });
 
     it('skips sessions that failed to restore', () => {
@@ -351,17 +238,12 @@ describe('app-state-logic', () => {
           { id: 'old2', name: 'B', cwd: '/b' },
         ],
         tasks: [],
-        sidebarOrder: [
-          { type: 'session', id: 'old1' },
-          { type: 'session', id: 'old2' },
-        ],
         taskCounter: 0,
       };
       // old2 failed to restore
       const idMap = new Map([['old1', 'new1']]);
 
       const result = reconstructFromSaved(saved, idMap);
-      expect(result.sidebarOrder).toEqual([{ type: 'session', id: 'new1' }]);
     });
 
     it('appends sessions not in sidebar order', () => {
@@ -372,16 +254,11 @@ describe('app-state-logic', () => {
           { id: 'old2', name: 'B', cwd: '/b' },
         ],
         tasks: [],
-        sidebarOrder: [{ type: 'session', id: 'old1' }],
         taskCounter: 0,
       };
       const idMap = new Map([['old1', 'new1'], ['old2', 'new2']]);
 
       const result = reconstructFromSaved(saved, idMap);
-      expect(result.sidebarOrder).toEqual([
-        { type: 'session', id: 'new1' },
-        { type: 'session', id: 'new2' },
-      ]);
     });
 
     it('preserves sidebar order across mixed sessions and tasks', () => {
@@ -394,233 +271,12 @@ describe('app-state-logic', () => {
           { id: 'old4', name: 'D', cwd: '/d' },
         ],
         tasks: [{ id: 'g1', title: 'Group', status: 'doing', sessionIds: ['old2', 'old3'], collapsed: false, createdAt: 0 }],
-        sidebarOrder: [
-          { type: 'session', id: 'old1' },
-          { type: 'task', id: 'g1' },
-          { type: 'session', id: 'old4' },
-        ],
         taskCounter: 1,
       };
       const idMap = new Map([['old1', 'n1'], ['old2', 'n2'], ['old3', 'n3'], ['old4', 'n4']]);
 
       const result = reconstructFromSaved(saved, idMap);
-      expect(result.sidebarOrder).toEqual([
-        { type: 'session', id: 'n1' },
-        { type: 'task', id: 'g1' },
-        { type: 'session', id: 'n4' },
-      ]);
       expect(result.tasks.get('g1')!.sessionIds).toEqual(['n2', 'n3']);
-    });
-  });
-
-  describe('handleDrop', () => {
-    describe('merge zone', () => {
-      it('creates a new task when merging two standalone sessions', () => {
-        const state = createState({
-          sidebarOrder: [
-            { type: 'session', id: 's1' },
-            { type: 'session', id: 's2' },
-          ],
-          taskCounter: 0,
-        });
-        const sessionIds = new Set(['s1', 's2']);
-
-        handleDrop(state, sessionIds, 's1', 's2', 'merge', false, 0);
-
-        expect(state.tasks.size).toBe(1);
-        const task = state.tasks.get('task-1')!;
-        expect(task.sessionIds).toEqual(['s2', 's1']);
-        expect(state.sidebarOrder).toEqual([{ type: 'task', id: 'task-1' }]);
-      });
-
-      it('adds session to existing task when merging onto grouped session', () => {
-        const task = makeTask('g1', ['s1', 's2']);
-        const state = createState({
-          tasks: new Map([['g1', task]]),
-          sidebarOrder: [
-            { type: 'task', id: 'g1' },
-            { type: 'session', id: 's3' },
-          ],
-        });
-        const sessionIds = new Set(['s1', 's2', 's3']);
-
-        handleDrop(state, sessionIds, 's3', 's1', 'merge', false, 0);
-        expect(task.sessionIds).toEqual(['s1', 's2', 's3']);
-      });
-
-      it('adds session to task when dropping on task header', () => {
-        const task = makeTask('g1', ['s1', 's2']);
-        const state = createState({
-          tasks: new Map([['g1', task]]),
-          sidebarOrder: [
-            { type: 'task', id: 'g1' },
-            { type: 'session', id: 's3' },
-          ],
-        });
-        const sessionIds = new Set(['s1', 's2', 's3']);
-
-        handleDrop(state, sessionIds, 's3', 'g1', 'merge', true, 0);
-        expect(task.sessionIds).toEqual(['s1', 's2', 's3']);
-      });
-
-      it('is a no-op when dragging onto self', () => {
-        const state = createState({
-          sidebarOrder: [{ type: 'session', id: 's1' }],
-        });
-        handleDrop(state, new Set(['s1']), 's1', 's1', 'merge', false, 0);
-        expect(state.sidebarOrder).toEqual([{ type: 'session', id: 's1' }]);
-      });
-
-      it('is a no-op when dragging already-grouped session onto its own task', () => {
-        const task = makeTask('g1', ['s1', 's2']);
-        const state = createState({
-          tasks: new Map([['g1', task]]),
-          sidebarOrder: [{ type: 'task', id: 'g1' }],
-        });
-        handleDrop(state, new Set(['s1', 's2']), 's1', 'g1', 'merge', true, 0);
-        expect(task.sessionIds).toEqual(['s1', 's2']);
-      });
-    });
-
-    describe('above/below zone', () => {
-      it('reorders standalone sessions — above', () => {
-        const state = createState({
-          sidebarOrder: [
-            { type: 'session', id: 's1' },
-            { type: 'session', id: 's2' },
-            { type: 'session', id: 's3' },
-          ],
-        });
-        const sessionIds = new Set(['s1', 's2', 's3']);
-
-        handleDrop(state, sessionIds, 's3', 's1', 'above', false, 0);
-        expect(state.sidebarOrder).toEqual([
-          { type: 'session', id: 's3' },
-          { type: 'session', id: 's1' },
-          { type: 'session', id: 's2' },
-        ]);
-      });
-
-      it('reorders standalone sessions — below', () => {
-        const state = createState({
-          sidebarOrder: [
-            { type: 'session', id: 's1' },
-            { type: 'session', id: 's2' },
-            { type: 'session', id: 's3' },
-          ],
-        });
-        const sessionIds = new Set(['s1', 's2', 's3']);
-
-        handleDrop(state, sessionIds, 's1', 's2', 'below', false, 0);
-        expect(state.sidebarOrder).toEqual([
-          { type: 'session', id: 's2' },
-          { type: 'session', id: 's1' },
-          { type: 'session', id: 's3' },
-        ]);
-      });
-
-      it('inserts session above a task header', () => {
-        const task = makeTask('g1', ['s2', 's3']);
-        const state = createState({
-          tasks: new Map([['g1', task]]),
-          sidebarOrder: [
-            { type: 'session', id: 's1' },
-            { type: 'task', id: 'g1' },
-          ],
-        });
-        const sessionIds = new Set(['s1', 's2', 's3']);
-
-        handleDrop(state, sessionIds, 's1', 'g1', 'above', true, 0);
-        expect(state.sidebarOrder).toEqual([
-          { type: 'session', id: 's1' },
-          { type: 'task', id: 'g1' },
-        ]);
-      });
-
-      it('inserts into task at target position — above', () => {
-        const task = makeTask('g1', ['s1', 's2']);
-        const state = createState({
-          tasks: new Map([['g1', task]]),
-          sidebarOrder: [
-            { type: 'task', id: 'g1' },
-            { type: 'session', id: 's3' },
-          ],
-        });
-        const sessionIds = new Set(['s1', 's2', 's3']);
-
-        handleDrop(state, sessionIds, 's3', 's1', 'above', false, 0);
-        expect(task.sessionIds).toEqual(['s3', 's1', 's2']);
-      });
-
-      it('ungroups session when dragged out and dropped below a task', () => {
-        const task = makeTask('g1', ['s1', 's2', 's3']);
-        const state = createState({
-          tasks: new Map([['g1', task]]),
-          sidebarOrder: [{ type: 'task', id: 'g1' }],
-        });
-        const sessionIds = new Set(['s1', 's2', 's3']);
-
-        handleDrop(state, sessionIds, 's3', 'g1', 'below', true, 0);
-        expect(task.sessionIds).toEqual(['s1', 's2']);
-        expect(state.sidebarOrder).toEqual([
-          { type: 'task', id: 'g1' },
-          { type: 'session', id: 's3' },
-        ]);
-      });
-
-      it('keeps a task when dragging out leaves only 1 member', () => {
-        const task = makeTask('g1', ['s1', 's2']);
-        const state = createState({
-          tasks: new Map([['g1', task]]),
-          sidebarOrder: [{ type: 'task', id: 'g1' }, { type: 'session', id: 's3' }],
-        });
-        const sessionIds = new Set(['s1', 's2', 's3']);
-
-        handleDrop(state, sessionIds, 's2', 's3', 'below', false, 0);
-        // g1 had [s1, s2], s2 was dragged out → g1 keeps s1 and stays a task
-        expect(state.tasks.size).toBe(1);
-        expect(state.tasks.get('g1')!.sessionIds).toEqual(['s1']);
-        expect(state.sidebarOrder).toEqual([
-          { type: 'task', id: 'g1' },
-          { type: 'session', id: 's3' },
-          { type: 'session', id: 's2' },
-        ]);
-      });
-    });
-  });
-
-  describe('zero- and single-session tasks (previously impossible)', () => {
-    it('getVisibleSessionOrder skips an empty task without error', () => {
-      const state = createState({
-        tasks: new Map([['t1', makeTask('t1', [])]]),
-        sidebarOrder: [{ type: 'task', id: 't1' }, { type: 'session', id: 's9' }],
-      });
-
-      expect(getVisibleSessionOrder(state, new Set(['s9']))).toEqual(['s9']);
-    });
-
-    it('removeSidebarEntry empties a single-session task without removing the task', () => {
-      const state = createState({
-        tasks: new Map([['t1', makeTask('t1', ['s1'])]]),
-        sidebarOrder: [{ type: 'task', id: 't1' }],
-      });
-
-      removeSidebarEntry(state, 's1');
-
-      expect(state.tasks.get('t1')!.sessionIds).toEqual([]);
-      expect(state.sidebarOrder).toEqual([{ type: 'task', id: 't1' }]);
-    });
-
-    it('handleDrop can merge a session into an empty task', () => {
-      const state = createState({
-        tasks: new Map([['t1', makeTask('t1', [])]]),
-        sidebarOrder: [{ type: 'task', id: 't1' }, { type: 'session', id: 's1' }],
-      });
-
-      handleDrop(state, new Set(['s1']), 's1', 't1', 'merge', true, 0);
-
-      expect(state.tasks.get('t1')!.sessionIds).toEqual(['s1']);
-      expect(state.sidebarOrder).toEqual([{ type: 'task', id: 't1' }]);
     });
   });
 
@@ -676,26 +332,10 @@ describe('app-state-logic', () => {
     });
   });
 
-  describe('handleDrop task creation', () => {
-    it('stamps createdAt on a task created by merging two sessions', () => {
-      const state = createState({
-        sidebarOrder: [{ type: 'session', id: 's1' }, { type: 'session', id: 's2' }],
-      });
-
-      handleDrop(state, new Set(['s1', 's2']), 's2', 's1', 'merge', false, 4242);
-
-      const created = state.tasks.get('task-1')!;
-      expect(created.createdAt).toBe(4242);
-      expect(created.title).toBe('New task');
-      expect(created.status).toBe('doing');
-    });
-  });
-
   describe('migrateSavedState', () => {
     const v1 = {
       sessions: [{ id: 's1', name: 'one', cwd: '/a' }],
       groups: [{ id: 'g1', name: 'My group', sessionIds: ['s1'], collapsed: true }],
-      sidebarOrder: [{ type: 'group', id: 'g1' }],
       groupCounter: 3,
     };
 
@@ -718,7 +358,6 @@ describe('app-state-logic', () => {
 
     it('rewrites v1 group sidebar entries as task entries', () => {
       const result = migrateSavedState(v1, 9000);
-      expect(result.sidebarOrder).toEqual([{ type: 'task', id: 'g1' }]);
     });
 
     it('is idempotent — migrating v2 state returns it unchanged', () => {
@@ -744,17 +383,18 @@ describe('app-state-logic', () => {
       expect(() => migrateSavedState({ groups: [null] }, 9000)).not.toThrow();
       expect(migrateSavedState({ groups: [null, 5, 'x'] }, 9000).tasks).toEqual([]);
 
+      // Real v1 files carry a sidebarOrder. Ordering is derived now, so it is
+      // ignored rather than migrated — but it must not break the load.
       expect(() => migrateSavedState({ sidebarOrder: [null] }, 9000)).not.toThrow();
-      expect(
-        migrateSavedState({ sidebarOrder: [null, { type: 'bogus', id: 'x' }] }, 9000).sidebarOrder,
-      ).toEqual([]);
+      const withOrder = migrateSavedState({ ...v1, sidebarOrder: [{ type: 'group', id: 'g1' }] }, 9000);
+      expect(withOrder.tasks).toHaveLength(1);
+      expect('sidebarOrder' in withOrder).toBe(false);
     });
 
     it('keeps v2 tasks when the version field is missing or unrecognised', () => {
       const v2shape = {
         sessions: [],
         tasks: [{ id: 't1', title: 'Keep me', status: 'doing', sessionIds: ['s1'], collapsed: false, createdAt: 5 }],
-        sidebarOrder: [{ type: 'task', id: 't1' }],
         taskCounter: 5,
       };
 
@@ -762,7 +402,6 @@ describe('app-state-logic', () => {
         const result = migrateSavedState(variant, 9000);
         expect(result.tasks).toHaveLength(1);
         expect(result.tasks[0].id).toBe('t1');
-        expect(result.sidebarOrder).toEqual([{ type: 'task', id: 't1' }]);
         expect(result.taskCounter).toBe(5);
       }
     });
@@ -790,7 +429,6 @@ describe('app-state-logic', () => {
         expect(result.version).toBe(SAVED_STATE_VERSION);
         expect(result.sessions).toEqual([]);
         expect(result.tasks).toEqual([]);
-        expect(result.sidebarOrder).toEqual([]);
         expect(result.taskCounter).toBe(0);
       }
     });
@@ -918,6 +556,90 @@ describe('app-state-logic', () => {
 
       expect(once).toEqual(twice);
       expect(once).toEqual(['task-1', 'task-2', 'task-3']);
+    });
+  });
+
+  describe('detachSession', () => {
+    // Restores coverage deleted with the removeSidebarEntry block.
+    it('removes a session from the task holding it, leaving the task in place', () => {
+      const state = createState();
+      const task = createTask(state, 'holder', 'doing', 0);
+      task.sessionIds = ['s1', 's2'];
+
+      detachSession(state, 's1');
+
+      expect(task.sessionIds).toEqual(['s2']);
+      expect(state.tasks.has(task.id)).toBe(true);
+    });
+
+    it('is a no-op for a session belonging to no task', () => {
+      const state = createState();
+      expect(() => detachSession(state, 'loose')).not.toThrow();
+    });
+  });
+
+  describe('attachSessionToTask', () => {
+    it('moves a session off the task it already belongs to', () => {
+      const state = createState();
+      const from = createTask(state, 'from', 'doing', 0);
+      const to = createTask(state, 'to', 'doing', 1);
+      from.sessionIds = ['s1'];
+
+      attachSessionToTask(state, 's1', to.id);
+
+      expect(from.sessionIds).toEqual([]);
+      expect(to.sessionIds).toEqual(['s1']);
+      // Appearing under two tasks would also duplicate it in navigation.
+      expect(getVisibleSessionOrder(state, new Set(['s1']))).toEqual(['s1']);
+    });
+
+    it('is a no-op when the session is already on that task', () => {
+      const state = createState();
+      const task = createTask(state, 'task', 'doing', 0);
+      task.sessionIds = ['s1'];
+
+      attachSessionToTask(state, 's1', task.id);
+
+      expect(task.sessionIds).toEqual(['s1']);
+    });
+
+    it('is a no-op for an unknown task', () => {
+      const state = createState();
+      expect(() => attachSessionToTask(state, 's1', 'nope')).not.toThrow();
+    });
+  });
+
+  describe('getVisibleSessionOrder (derived)', () => {
+    it('walks doing, then backlog, then done, then loose', () => {
+      const state = createState();
+      const doing = createTask(state, 'doing', 'doing', 0);
+      const backlog = createTask(state, 'backlog', 'backlog', 0);
+      const done = createTask(state, 'done', 'doing', 0);
+      doing.sessionIds = ['d1'];
+      backlog.sessionIds = ['b1'];
+      done.sessionIds = ['x1'];
+      setTaskStatus(done, 'done', 0);
+
+      const live = new Set(['d1', 'b1', 'x1', 'loose1']);
+
+      expect(getVisibleSessionOrder(state, live)).toEqual(['d1', 'b1', 'x1', 'loose1']);
+    });
+
+    it('still reaches a collapsed task\'s sessions — collapse is presentation only', () => {
+      const state = createState();
+      const task = createTask(state, 'collapsed', 'backlog', 0);
+      task.sessionIds = ['s1'];
+      task.collapsed = true;
+
+      expect(getVisibleSessionOrder(state, new Set(['s1']))).toEqual(['s1']);
+    });
+
+    it('omits dead sessions', () => {
+      const state = createState();
+      const task = createTask(state, 'task', 'doing', 0);
+      task.sessionIds = ['alive', 'dead'];
+
+      expect(getVisibleSessionOrder(state, new Set(['alive']))).toEqual(['alive']);
     });
   });
 });
