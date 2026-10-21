@@ -136,10 +136,13 @@ scope here.
 3. **Repos on a task + worktree creation**
 4. **Worktree lifecycle** — branch, PR, prune. The unglamorous part that decides
    usability; creation without pruning is a mess generator
-5. **State detection via JSONL transcripts / hooks** — see prior work below
+5. **State detection** — *deferred, not sequenced.* The current heuristic works;
+   findings are recorded below so the decision is not re-litigated. Independent of
+   every other phase
 6. **Jira linkage** — store the ticket key on the task; link, never duplicate
 
-Phases 2–6 are intent, not specification. Each gets its own design pass.
+Phases 2–4 and 6 are intent, not specification; each gets its own design pass.
+Phase 5 is parked rather than queued — it carries no dependency in either direction.
 
 ## Phase 1 — specification
 
@@ -168,20 +171,84 @@ running app is untouched.
 **Acceptance:** `npm run build` and `npm test` pass; the app still launches and
 behaves exactly as before, since nothing it loads has changed.
 
-## Prior work: `jsonl-reading-for-state-transition`
+## Deferred: state detection
 
-Branch `94e657a` (2026-03-23, unmerged) adds `jsonl-session-resolver.ts` and
-`jsonl-watcher.ts` with tests, and substantially guts `state-detector.ts` and its
-tests — replacing heuristic screen parsing with reads of Claude Code's own
-structured transcripts at `~/.claude/projects/<slug>/<sessionId>.jsonl`.
+**Status: parked.** The heuristic detector on `master` works, and is the chosen
+solution until something forces a change. This is **independent of Phases 1–4** —
+they touch the task model, sidebar, worktrees and lifecycle, while state detection
+lives in `state-detector.ts` and `session-manager.ts`. Revisit only when the
+heuristic actually breaks.
 
-This is the Phase 5 direction, already half-built. It does not overlap Phase 1
-(different files entirely). However, `master` has since advanced past it with
-542a5b6, which further evolved the heuristic detector the draft deletes, so the
-branch likely conflicts with current `master`.
+The findings below are recorded so this ground is not covered a third time.
 
-**Open decision, before Phase 5:** land it, rebase it, or discard and redo. Not
-blocking.
+### Rejected: reading JSONL transcripts
+
+Branch `jsonl-reading-for-state-transition` (`94e657a`, 2026-03-23, one commit,
+unmerged). Adds `jsonl-session-resolver.ts` and `jsonl-watcher.ts` with tests, and
+cuts `state-detector.ts` from 366 to 135 lines.
+
+*How it worked:* the resolver maps cwd → `~/.claude/projects/<cwd with / and . as ->`,
+snapshots `*.jsonl` before spawn, then either polls for a newly-appeared file (fresh
+session; 1s interval, 30s timeout) or takes the most-recently-modified file from the
+snapshot (`--continue`). The watcher tails that file with `fs.watchFile` at 500ms,
+tracking a byte offset and buffering partial lines, and emits `turn-end` on
+`{ type: 'system', subtype: 'turn_duration' }`. `session-manager` calls
+`classifyNow()` on that edge.
+
+*Why rejected:*
+
+- **It is a hybrid, not a replacement.** Every screen pattern survives; the JSONL
+  supplies only the *timing* of a turn edge. It adds machinery instead of removing it.
+- Depends on `turn_duration`, an undocumented internal record type. If that is ever
+  renamed, detection does not degrade — it silently never fires again.
+- The `--continue` resolver picks "most recently modified file", which misattributes
+  whenever two sessions share a repo.
+- A fresh session whose transcript does not appear within 30s gets no detection at
+  all, permanently.
+- **Superseded.** `8d0d7c7` (2026-04-16, "update state transition to a wait → fire
+  model") solved the timing problem inside the screen-polling approach three weeks
+  later, removing the only thing the branch bought; `542a5b6` (2026-07-19) improved
+  it further.
+- Observed in practice to make detection worse.
+
+**Delete the branch; do not rebase it.** Every pre-existing file it touches except
+`README.md` has since moved on `master`, so a rebase would be a rewrite.
+
+### Most promising route when revisited: the managed-hook shim
+
+Hooks were the original instinct and were blocked by `"allowManagedHooksOnly": true`
+in the enterprise managed settings — user- and project-level hooks are ignored.
+
+However, the managed config already defines the two hooks that matter, and they are
+an extension point:
+
+| Hook | Command | Means |
+|---|---|---|
+| `Stop` | `cmux notify --body "Done — needs input"` | turn finished → `idle` |
+| `Notification`, matcher `idle_prompt\|permission_prompt\|agent_needs_input` | `cmux notify --body "Waiting for your input"` | blocked on the user → `needs-input` |
+
+Both are gated on `$CMUX_NOTIFY_ENABLED` and both invoke an **unqualified binary
+resolved from `PATH`**. `cmux` is not installed and the gate is unset, so they are
+currently inert.
+
+The app controls the environment of every session it spawns (`session-manager.ts:46`
+builds the env, `:62` passes it to `pty.spawn`). For its own sessions it can set
+`CMUX_NOTIFY_ENABLED=true` and prepend a directory containing its own `cmux` shim.
+Nothing outside those sessions is affected.
+
+*The payoff:* the two hooks carry different bodies, yielding `idle` versus
+`needs-input` as **fact reported by Claude Code**, at the moment it is true, rather
+than inference from screen text. That is exactly the distinction the pattern tables
+exist to guess at — and it is what JSONL tailing could never provide, since that
+reported only *that* a turn ended, never *why* Claude stopped.
+
+*Session attribution:* inject a per-session env var the shim reads back, or use the
+hook's stdin JSON if it carries `session_id` — verify before relying on it.
+
+*Open question before adopting:* `allowManagedHooksOnly` exists to control which
+commands run, and supplying the binary a managed hook invokes changes what one of
+them is. Nothing legitimate is displaced and the purpose matches the hook's stated
+intent, but confirm with the owner of the managed config first.
 
 ## Rejected alternatives
 
