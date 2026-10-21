@@ -47,6 +47,33 @@ describe('app-state-logic', () => {
   });
 
   describe('pruneDeadSessions', () => {
+    it('keeps a task whose sessions have all died', () => {
+      const task = makeTask('t1', ['s1', 's2']);
+      const state = createState({
+        tasks: new Map([['t1', task]]),
+        sidebarOrder: [{ type: 'task', id: 't1' }],
+      });
+
+      pruneDeadSessions(state, new Set());
+
+      expect(state.tasks.get('t1')).toBeDefined();
+      expect(state.tasks.get('t1')!.sessionIds).toEqual([]);
+      expect(state.sidebarOrder).toEqual([{ type: 'task', id: 't1' }]);
+    });
+
+    it('keeps a task down to a single session without unwrapping it', () => {
+      const task = makeTask('t1', ['s1', 's2']);
+      const state = createState({
+        tasks: new Map([['t1', task]]),
+        sidebarOrder: [{ type: 'task', id: 't1' }],
+      });
+
+      pruneDeadSessions(state, new Set(['s1']));
+
+      expect(state.tasks.get('t1')!.sessionIds).toEqual(['s1']);
+      expect(state.sidebarOrder).toEqual([{ type: 'task', id: 't1' }]);
+    });
+
     it('removes dead sessions from tasks', () => {
       const task = makeTask('g1', ['s1', 's2', 's3']);
       const state = createState({
@@ -58,28 +85,33 @@ describe('app-state-logic', () => {
       expect(task.sessionIds).toEqual(['s1', 's2']);
     });
 
-    it('disbands task with 1 remaining session, replacing sidebar entry', () => {
+    it('keeps a task with 1 remaining session, leaving its sidebar entry', () => {
       const task = makeTask('g1', ['s1', 's2']);
       const state = createState({
         tasks: new Map([['g1', task]]),
         sidebarOrder: [{ type: 'task', id: 'g1' }],
       });
-      // s2 no longer exists — task has only s1
+      // s2 no longer exists — task has only s1, and survives as a task
       pruneDeadSessions(state, new Set(['s1']));
-      expect(state.tasks.size).toBe(0);
-      expect(state.sidebarOrder).toEqual([{ type: 'session', id: 's1' }]);
+      expect(state.tasks.size).toBe(1);
+      expect(state.tasks.get('g1')!.sessionIds).toEqual(['s1']);
+      expect(state.sidebarOrder).toEqual([{ type: 'task', id: 'g1' }]);
     });
 
-    it('removes sidebar entry when task has 0 remaining sessions', () => {
+    it('keeps the sidebar entry when a task has 0 remaining sessions', () => {
       const task = makeTask('g1', ['s1', 's2']);
       const state = createState({
         tasks: new Map([['g1', task]]),
         sidebarOrder: [{ type: 'session', id: 's3' }, { type: 'task', id: 'g1' }],
       });
-      // Both s1 and s2 gone
+      // Both s1 and s2 gone — the task empties but stays put
       pruneDeadSessions(state, new Set(['s3']));
-      expect(state.tasks.size).toBe(0);
-      expect(state.sidebarOrder).toEqual([{ type: 'session', id: 's3' }]);
+      expect(state.tasks.size).toBe(1);
+      expect(state.tasks.get('g1')!.sessionIds).toEqual([]);
+      expect(state.sidebarOrder).toEqual([
+        { type: 'session', id: 's3' },
+        { type: 'task', id: 'g1' },
+      ]);
     });
 
     it('keeps tasks with 2+ members intact', () => {
@@ -205,6 +237,35 @@ describe('app-state-logic', () => {
   });
 
   describe('reconstructFromSaved', () => {
+    it('restores a task whose sessions are all gone', () => {
+      const saved: SavedState = {
+        sessions: [],
+        tasks: [makeTask('t1', ['old1', 'old2'])],
+        sidebarOrder: [{ type: 'task', id: 't1' }],
+        taskCounter: 1,
+      };
+
+      const result = reconstructFromSaved(saved, new Map());
+
+      expect(result.tasks.get('t1')).toBeDefined();
+      expect(result.tasks.get('t1')!.sessionIds).toEqual([]);
+      expect(result.sidebarOrder).toEqual([{ type: 'task', id: 't1' }]);
+    });
+
+    it('restores a task with a single surviving session as a task, not a loose session', () => {
+      const saved: SavedState = {
+        sessions: [],
+        tasks: [makeTask('t1', ['old1', 'old2'])],
+        sidebarOrder: [{ type: 'task', id: 't1' }],
+        taskCounter: 1,
+      };
+
+      const result = reconstructFromSaved(saved, new Map([['old1', 'new1']]));
+
+      expect(result.tasks.get('t1')!.sessionIds).toEqual(['new1']);
+      expect(result.sidebarOrder).toEqual([{ type: 'task', id: 't1' }]);
+    });
+
     it('remaps session IDs in tasks and sidebar', () => {
       const saved: SavedState = {
         sessions: [
@@ -248,7 +309,7 @@ describe('app-state-logic', () => {
       expect(result.taskCounter).toBe(1);
     });
 
-    it('disbands task when fewer than 2 sessions survive', () => {
+    it('keeps a task when fewer than 2 sessions survive', () => {
       const saved: SavedState = {
         sessions: [
           { id: 'old1', name: 'A', cwd: '/a' },
@@ -262,9 +323,10 @@ describe('app-state-logic', () => {
       const idMap = new Map([['old1', 'new1']]);
 
       const result = reconstructFromSaved(saved, idMap);
-      expect(result.tasks.size).toBe(0);
-      // Surviving session should appear as standalone
-      expect(result.sidebarOrder).toEqual([{ type: 'session', id: 'new1' }]);
+      expect(result.tasks.size).toBe(1);
+      // The task survives with its one remaining session, still a task
+      expect(result.tasks.get('g1')!.sessionIds).toEqual(['new1']);
+      expect(result.sidebarOrder).toEqual([{ type: 'task', id: 'g1' }]);
     });
 
     it('skips sessions that failed to restore', () => {
@@ -489,7 +551,7 @@ describe('app-state-logic', () => {
         ]);
       });
 
-      it('disbands task when dragging out leaves only 1 member', () => {
+      it('keeps a task when dragging out leaves only 1 member', () => {
         const task = makeTask('g1', ['s1', 's2']);
         const state = createState({
           tasks: new Map([['g1', task]]),
@@ -498,14 +560,50 @@ describe('app-state-logic', () => {
         const sessionIds = new Set(['s1', 's2', 's3']);
 
         handleDrop(state, sessionIds, 's2', 's3', 'below', false);
-        // g1 had [s1, s2], s2 was removed → g1 disbanded, s1 becomes standalone
-        expect(state.tasks.size).toBe(0);
+        // g1 had [s1, s2], s2 was dragged out → g1 keeps s1 and stays a task
+        expect(state.tasks.size).toBe(1);
+        expect(state.tasks.get('g1')!.sessionIds).toEqual(['s1']);
         expect(state.sidebarOrder).toEqual([
-          { type: 'session', id: 's1' },
+          { type: 'task', id: 'g1' },
           { type: 'session', id: 's3' },
           { type: 'session', id: 's2' },
         ]);
       });
+    });
+  });
+
+  describe('zero- and single-session tasks (previously impossible)', () => {
+    it('getVisibleSessionOrder skips an empty task without error', () => {
+      const state = createState({
+        tasks: new Map([['t1', makeTask('t1', [])]]),
+        sidebarOrder: [{ type: 'task', id: 't1' }, { type: 'session', id: 's9' }],
+      });
+
+      expect(getVisibleSessionOrder(state, new Set(['s9']))).toEqual(['s9']);
+    });
+
+    it('removeSidebarEntry empties a single-session task without removing the task', () => {
+      const state = createState({
+        tasks: new Map([['t1', makeTask('t1', ['s1'])]]),
+        sidebarOrder: [{ type: 'task', id: 't1' }],
+      });
+
+      removeSidebarEntry(state, 's1');
+
+      expect(state.tasks.get('t1')!.sessionIds).toEqual([]);
+      expect(state.sidebarOrder).toEqual([{ type: 'task', id: 't1' }]);
+    });
+
+    it('handleDrop can merge a session into an empty task', () => {
+      const state = createState({
+        tasks: new Map([['t1', makeTask('t1', [])]]),
+        sidebarOrder: [{ type: 'task', id: 't1' }, { type: 'session', id: 's1' }],
+      });
+
+      handleDrop(state, new Set(['s1']), 's1', 't1', 'merge', true);
+
+      expect(state.tasks.get('t1')!.sessionIds).toEqual(['s1']);
+      expect(state.sidebarOrder).toEqual([{ type: 'task', id: 't1' }]);
     });
   });
 });

@@ -44,24 +44,12 @@ export function getTaskForSession(tasks: Map<string, Task>, sessionId: string): 
 }
 
 /**
- * Remove dead sessions from tasks. Disband tasks with fewer than 2 members.
+ * Remove dead sessions from tasks. Tasks survive at any size, including zero —
+ * a task is durable and exists independently of its sessions.
  */
 export function pruneDeadSessions(state: AppState, sessionIds: Set<string>): void {
-  for (const [taskId, task] of state.tasks) {
+  for (const task of state.tasks.values()) {
     task.sessionIds = task.sessionIds.filter(id => sessionIds.has(id));
-
-    if (task.sessionIds.length <= 1) {
-      const remainingId = task.sessionIds[0];
-      const idx = state.sidebarOrder.findIndex(e => e.type === 'task' && e.id === taskId);
-      if (idx !== -1) {
-        if (remainingId) {
-          state.sidebarOrder[idx] = { type: 'session', id: remainingId };
-        } else {
-          state.sidebarOrder.splice(idx, 1);
-        }
-      }
-      state.tasks.delete(taskId);
-    }
   }
 }
 
@@ -122,34 +110,23 @@ export function reconstructFromSaved(
   const tasks = new Map<string, Task>();
   const sidebarOrder: SidebarEntry[] = [];
 
-  // Rebuild tasks with remapped IDs
+  // Rebuild tasks with remapped IDs. Every saved task is restored, whatever
+  // its surviving session count — a task outlives its sessions.
   for (const savedTask of saved.tasks) {
     const remappedIds = savedTask.sessionIds
       .map(id => idMap.get(id))
       .filter((id): id is string => id !== undefined);
-    if (remappedIds.length >= 2) {
-      tasks.set(savedTask.id, { ...savedTask, sessionIds: remappedIds });
-    }
+    tasks.set(savedTask.id, { ...savedTask, sessionIds: remappedIds });
   }
 
-  // Rebuild sidebar order
+  // Rebuild sidebar order. A task entry always resolves now, so the old
+  // disband-fallback that scattered survivors as loose sessions is gone.
   for (const entry of saved.sidebarOrder) {
     if (entry.type === 'session') {
       const newId = idMap.get(entry.id);
       if (newId) sidebarOrder.push({ type: 'session', id: newId });
-    } else {
-      if (tasks.has(entry.id)) {
-        sidebarOrder.push({ type: 'task', id: entry.id });
-      } else {
-        // Task was disbanded (< 2 members survived) — add surviving members as standalone
-        const savedTask = saved.tasks.find(t => t.id === entry.id);
-        if (savedTask) {
-          for (const oldId of savedTask.sessionIds) {
-            const newId = idMap.get(oldId);
-            if (newId) sidebarOrder.push({ type: 'session', id: newId });
-          }
-        }
-      }
+    } else if (tasks.has(entry.id)) {
+      sidebarOrder.push({ type: 'task', id: entry.id });
     }
   }
 
