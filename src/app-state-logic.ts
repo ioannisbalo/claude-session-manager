@@ -79,6 +79,62 @@ export function isTaskVisible(task: Task, now: number): boolean {
  * attached afterwards, which is what makes a task a todo item rather than a
  * container for sessions that already exist.
  */
+export interface SidebarSections {
+  doing: Task[];
+  backlog: Task[];
+  done: Task[];
+  /** Live session ids belonging to no task. */
+  loose: string[];
+}
+
+/** Oldest first, with a stable tie-break — Date.now() collides on quick creates. */
+function byCreatedAsc(a: Task, b: Task): number {
+  return a.createdAt - b.createdAt || a.id.localeCompare(b.id);
+}
+
+/** Most recently closed first. */
+function byCompletedDesc(a: Task, b: Task): number {
+  return (b.completedAt ?? 0) - (a.completedAt ?? 0) || a.id.localeCompare(b.id);
+}
+
+/**
+ * Split state into the four sidebar sections, already ordered. The ordering
+ * rules live here rather than in render code so they are testable.
+ */
+export function partitionSidebar(
+  state: AppState,
+  liveSessionIds: Set<string>,
+  now: number,
+): SidebarSections {
+  const doing: Task[] = [];
+  const backlog: Task[] = [];
+  const done: Task[] = [];
+  const owned = new Set<string>();
+
+  for (const task of state.tasks.values()) {
+    for (const sid of task.sessionIds) owned.add(sid);
+
+    if (task.status === 'doing') {
+      doing.push(task);
+    } else if (task.status === 'backlog') {
+      backlog.push(task);
+    } else {
+      // A done task whose window has lapsed still shows while it holds live
+      // sessions — hiding it would strand them, since a session inside a task
+      // is not loose and would be reachable from nowhere.
+      const hasLive = task.sessionIds.some(sid => liveSessionIds.has(sid));
+      if (isTaskVisible(task, now) || hasLive) done.push(task);
+    }
+  }
+
+  return {
+    doing: doing.sort(byCreatedAsc),
+    backlog: backlog.sort(byCreatedAsc),
+    done: done.sort(byCompletedDesc),
+    loose: Array.from(liveSessionIds).filter(sid => !owned.has(sid)),
+  };
+}
+
 export function createTask(state: AppState, title: string, status: TaskStatus, now: number): Task {
   state.taskCounter++;
   const trimmed = title.trim();

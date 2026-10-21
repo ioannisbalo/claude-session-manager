@@ -18,6 +18,8 @@ import {
   SAVED_STATE_VERSION,
   createTask,
   deleteTask,
+  partitionSidebar,
+  TaskStatus,
 } from './app-state-logic';
 
 function createState(overrides?: Partial<AppState>): AppState {
@@ -835,6 +837,87 @@ describe('app-state-logic', () => {
     it('is a no-op for an unknown id', () => {
       const state = createState();
       expect(() => deleteTask(state, 'nope')).not.toThrow();
+    });
+  });
+
+  describe('partitionSidebar', () => {
+    function stateWith(specs: Array<[string, TaskStatus, number, string[]]>): AppState {
+      const state = createState();
+      for (const [title, status, createdAt, sessionIds] of specs) {
+        const task = createTask(state, title, status, createdAt);
+        task.sessionIds = sessionIds;
+      }
+      return state;
+    }
+
+    it('splits tasks by status and orders doing/backlog oldest first', () => {
+      const state = stateWith([
+        ['newer doing', 'doing', 200, []],
+        ['older doing', 'doing', 100, []],
+        ['backlog b', 'backlog', 400, []],
+        ['backlog a', 'backlog', 300, []],
+      ]);
+
+      const result = partitionSidebar(state, new Set(), 1000);
+
+      expect(result.doing.map(t => t.title)).toEqual(['older doing', 'newer doing']);
+      expect(result.backlog.map(t => t.title)).toEqual(['backlog a', 'backlog b']);
+    });
+
+    it('orders done by completedAt, most recently closed first', () => {
+      const state = createState();
+      const first = createTask(state, 'closed first', 'doing', 0);
+      const second = createTask(state, 'closed second', 'doing', 0);
+      setTaskStatus(first, 'done', 100);
+      setTaskStatus(second, 'done', 200);
+
+      const result = partitionSidebar(state, new Set(), 300);
+
+      expect(result.done.map(t => t.title)).toEqual(['closed second', 'closed first']);
+    });
+
+    it('drops a done task once its 24h window lapses', () => {
+      const state = createState();
+      const task = createTask(state, 'old news', 'doing', 0);
+      setTaskStatus(task, 'done', 0);
+
+      expect(partitionSidebar(state, new Set(), DONE_VISIBILITY_MS).done).toHaveLength(1);
+      expect(partitionSidebar(state, new Set(), DONE_VISIBILITY_MS + 1).done).toHaveLength(0);
+    });
+
+    it('keeps a lapsed done task visible while it still has live sessions', () => {
+      const state = createState();
+      const task = createTask(state, 'done but busy', 'doing', 0);
+      task.sessionIds = ['s1'];
+      setTaskStatus(task, 'done', 0);
+
+      const result = partitionSidebar(state, new Set(['s1']), DONE_VISIBILITY_MS + 1);
+
+      // Hiding it would strand s1: it is in a task, so it is not loose either.
+      expect(result.done.map(t => t.title)).toEqual(['done but busy']);
+      expect(result.loose).toEqual([]);
+    });
+
+    it('reports sessions belonging to no task as loose', () => {
+      const state = stateWith([['owns s1', 'doing', 0, ['s1']]]);
+
+      const result = partitionSidebar(state, new Set(['s1', 's2', 's3']), 100);
+
+      expect(result.loose).toEqual(['s2', 's3']);
+    });
+
+    it('orders tasks created in the same millisecond deterministically', () => {
+      const state = stateWith([
+        ['a', 'backlog', 500, []],
+        ['b', 'backlog', 500, []],
+        ['c', 'backlog', 500, []],
+      ]);
+
+      const once = partitionSidebar(state, new Set(), 1000).backlog.map(t => t.id);
+      const twice = partitionSidebar(state, new Set(), 1000).backlog.map(t => t.id);
+
+      expect(once).toEqual(twice);
+      expect(once).toEqual(['task-1', 'task-2', 'task-3']);
     });
   });
 });
