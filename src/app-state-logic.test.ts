@@ -14,6 +14,8 @@ import {
   setTaskStatus,
   isTaskVisible,
   DONE_VISIBILITY_MS,
+  migrateSavedState,
+  SAVED_STATE_VERSION,
 } from './app-state-logic';
 
 function createState(overrides?: Partial<AppState>): AppState {
@@ -242,6 +244,7 @@ describe('app-state-logic', () => {
   describe('reconstructFromSaved', () => {
     it('restores a task whose sessions are all gone', () => {
       const saved: SavedState = {
+        version: SAVED_STATE_VERSION,
         sessions: [],
         tasks: [makeTask('t1', ['old1', 'old2'])],
         sidebarOrder: [{ type: 'task', id: 't1' }],
@@ -257,6 +260,7 @@ describe('app-state-logic', () => {
 
     it('restores a task with a single surviving session as a task, not a loose session', () => {
       const saved: SavedState = {
+        version: SAVED_STATE_VERSION,
         sessions: [],
         tasks: [makeTask('t1', ['old1', 'old2'])],
         sidebarOrder: [{ type: 'task', id: 't1' }],
@@ -271,6 +275,7 @@ describe('app-state-logic', () => {
 
     it('remaps session IDs in tasks and sidebar', () => {
       const saved: SavedState = {
+        version: SAVED_STATE_VERSION,
         sessions: [
           { id: 'old1', name: 'A', cwd: '/a' },
           { id: 'old2', name: 'B', cwd: '/b' },
@@ -293,6 +298,7 @@ describe('app-state-logic', () => {
 
     it('remaps IDs inside tasks', () => {
       const saved: SavedState = {
+        version: SAVED_STATE_VERSION,
         sessions: [
           { id: 'old1', name: 'A', cwd: '/a' },
           { id: 'old2', name: 'B', cwd: '/b' },
@@ -314,6 +320,7 @@ describe('app-state-logic', () => {
 
     it('keeps a task when fewer than 2 sessions survive', () => {
       const saved: SavedState = {
+        version: SAVED_STATE_VERSION,
         sessions: [
           { id: 'old1', name: 'A', cwd: '/a' },
           { id: 'old2', name: 'B', cwd: '/b' },
@@ -334,6 +341,7 @@ describe('app-state-logic', () => {
 
     it('skips sessions that failed to restore', () => {
       const saved: SavedState = {
+        version: SAVED_STATE_VERSION,
         sessions: [
           { id: 'old1', name: 'A', cwd: '/a' },
           { id: 'old2', name: 'B', cwd: '/b' },
@@ -354,6 +362,7 @@ describe('app-state-logic', () => {
 
     it('appends sessions not in sidebar order', () => {
       const saved: SavedState = {
+        version: SAVED_STATE_VERSION,
         sessions: [
           { id: 'old1', name: 'A', cwd: '/a' },
           { id: 'old2', name: 'B', cwd: '/b' },
@@ -373,6 +382,7 @@ describe('app-state-logic', () => {
 
     it('preserves sidebar order across mixed sessions and tasks', () => {
       const saved: SavedState = {
+        version: SAVED_STATE_VERSION,
         sessions: [
           { id: 'old1', name: 'A', cwd: '/a' },
           { id: 'old2', name: 'B', cwd: '/b' },
@@ -674,6 +684,54 @@ describe('app-state-logic', () => {
       expect(created.createdAt).toBe(4242);
       expect(created.title).toBe('New task');
       expect(created.status).toBe('doing');
+    });
+  });
+
+  describe('migrateSavedState', () => {
+    const v1 = {
+      sessions: [{ id: 's1', name: 'one', cwd: '/a' }],
+      groups: [{ id: 'g1', name: 'My group', sessionIds: ['s1'], collapsed: true }],
+      sidebarOrder: [{ type: 'group', id: 'g1' }],
+      groupCounter: 3,
+    };
+
+    it('converts v1 groups into doing tasks, preserving title and collapse', () => {
+      const result = migrateSavedState(v1, 9000);
+
+      expect(result.version).toBe(SAVED_STATE_VERSION);
+      expect(result.tasks).toHaveLength(1);
+      expect(result.tasks[0]).toEqual({
+        id: 'g1',
+        title: 'My group',
+        status: 'doing',
+        sessionIds: ['s1'],
+        collapsed: true,
+        createdAt: 9000,
+      });
+      expect(result.taskCounter).toBe(3);
+      expect(result.sessions).toEqual(v1.sessions);
+    });
+
+    it('rewrites v1 group sidebar entries as task entries', () => {
+      const result = migrateSavedState(v1, 9000);
+      expect(result.sidebarOrder).toEqual([{ type: 'task', id: 'g1' }]);
+    });
+
+    it('is idempotent — migrating v2 state returns it unchanged', () => {
+      const once = migrateSavedState(v1, 9000);
+      const twice = migrateSavedState(once, 50000);
+      expect(twice).toEqual(once);
+    });
+
+    it('returns usable empty state for malformed input instead of throwing', () => {
+      for (const bad of [null, undefined, 42, 'nonsense', {}, { groups: 'not an array' }]) {
+        const result = migrateSavedState(bad, 9000);
+        expect(result.version).toBe(SAVED_STATE_VERSION);
+        expect(result.sessions).toEqual([]);
+        expect(result.tasks).toEqual([]);
+        expect(result.sidebarOrder).toEqual([]);
+        expect(result.taskCounter).toBe(0);
+      }
     });
   });
 });

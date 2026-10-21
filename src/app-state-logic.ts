@@ -23,7 +23,10 @@ export interface SessionData {
 
 export type SidebarEntry = { type: 'session'; id: string } | { type: 'task'; id: string };
 
+export const SAVED_STATE_VERSION = 2;
+
 export interface SavedState {
+  version: number;
   sessions: Array<{ id: string; name: string; cwd: string }>;
   tasks: Task[];
   sidebarOrder: SidebarEntry[];
@@ -120,6 +123,7 @@ export function buildSavedState(sessions: Map<string, SessionData>, state: AppSt
     id, name: s.name, cwd: s.cwd,
   }));
   return {
+    version: SAVED_STATE_VERSION,
     sessions: savedSessions,
     tasks: Array.from(state.tasks.values()),
     sidebarOrder: state.sidebarOrder,
@@ -171,6 +175,64 @@ export function reconstructFromSaved(
     tasks,
     sidebarOrder,
     taskCounter: saved.taskCounter,
+  };
+}
+
+type SavedSession = { id: string; name: string; cwd: string };
+
+interface SavedGroupV1 {
+  id: string;
+  name: string;
+  sessionIds: string[];
+  collapsed: boolean;
+}
+
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+/**
+ * Bring a saved state file up to the current version. Tolerates malformed and
+ * hand-edited files by falling back to empty collections rather than throwing —
+ * a corrupt state file should cost the sidebar layout, not the app's startup.
+ */
+export function migrateSavedState(raw: unknown, now: number): SavedState {
+  if (typeof raw !== 'object' || raw === null) {
+    return { version: SAVED_STATE_VERSION, sessions: [], tasks: [], sidebarOrder: [], taskCounter: 0 };
+  }
+
+  const state = raw as Record<string, unknown>;
+
+  if (state.version === SAVED_STATE_VERSION) {
+    return {
+      version: SAVED_STATE_VERSION,
+      sessions: asArray<SavedSession>(state.sessions),
+      tasks: asArray<Task>(state.tasks),
+      sidebarOrder: asArray<SidebarEntry>(state.sidebarOrder),
+      taskCounter: typeof state.taskCounter === 'number' ? state.taskCounter : 0,
+    };
+  }
+
+  const tasks: Task[] = asArray<SavedGroupV1>(state.groups).map(group => ({
+    id: group.id,
+    title: group.name,
+    status: 'doing' as const,
+    sessionIds: asArray<string>(group.sessionIds),
+    collapsed: group.collapsed === true,
+    createdAt: now,
+  }));
+
+  const sidebarOrder: SidebarEntry[] = asArray<{ type: string; id: string }>(state.sidebarOrder)
+    .map(entry => entry.type === 'group'
+      ? { type: 'task' as const, id: entry.id }
+      : { type: 'session' as const, id: entry.id });
+
+  return {
+    version: SAVED_STATE_VERSION,
+    sessions: asArray<SavedSession>(state.sessions),
+    tasks,
+    sidebarOrder,
+    taskCounter: typeof state.groupCounter === 'number' ? state.groupCounter : 0,
   };
 }
 
