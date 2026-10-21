@@ -53,8 +53,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Attempt to restore previous state on startup
   restoreState(paneManager).then((restored) => {
+    // Always render: the sections and their `+` buttons are the only way to
+    // create a first task, so a fresh start must not leave the sidebar blank.
+    renderSidebar();
     if (restored) {
-      renderSidebar();
       if (!paneManager.isEmpty()) {
         terminalPanel.classList.add('visible');
         emptyState.style.display = 'none';
@@ -63,6 +65,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (firstId) switchToSession(firstId);
       }
     }
+  }).catch(() => {
+    // A failed restore must still leave a usable sidebar rather than a blank one.
+    renderSidebar();
   });
 
 document.getElementById('new-session-btn')!.addEventListener('click', createNewSession);
