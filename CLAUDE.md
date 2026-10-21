@@ -20,7 +20,7 @@ Tests use Vitest. Test files are co-located with source (`src/*.test.ts`). No li
 - `src/app-state-logic.test.ts` — Pure logic tests for sidebar state, group management, drag-and-drop, and state persistence/reconstruction
 - `src/session-manager.test.ts` — SessionManager tests with mocked PTY and TransitionLogger (buffer management, write guards, kill/cleanup, state detection integration)
 
-`src/app-state-logic.ts` is the testable extraction of the renderer's `appState.ts` logic. The renderer still uses its own copy (loaded as a plain script tag via `module: "none"`), but the algorithms are validated through this module.
+`src/app-state-logic.ts` is the testable extraction of the renderer's `appState.ts` logic. The renderer still uses its own copy (loaded as a plain script tag, not an ES module), but the algorithms are validated through this module.
 
 ### Debugging state detection
 
@@ -47,7 +47,7 @@ When you find a misclassification, the `linesExamined` field shows the last 10 l
 
 ## Architecture
 
-Electron app with two TypeScript compilation targets (tsconfig.main.json for Node/main process, tsconfig.renderer.json for browser/renderer process). Renderer scripts are **not bundled** — they load as plain `<script>` tags via `module: "none"`.
+Electron app with two TypeScript compilation targets (tsconfig.main.json for Node/main process, tsconfig.renderer.json for browser/renderer process). Renderer scripts are **not bundled** — they load as plain `<script>` tags. The renderer target uses `module: "preserve"` (TypeScript 7 removed `module: "none"`); since no renderer file has a top-level `import`/`export`, each one still emits as a classic global script. Adding an `import` to a renderer file would emit untransformed ESM into a classic script and break it silently — keep renderer modules global.
 
 ### Main Process (main.ts, src/*.ts)
 

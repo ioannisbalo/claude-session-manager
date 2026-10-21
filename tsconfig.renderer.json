@@ -1,7 +1,9 @@
 {
   "compilerOptions": {
     "target": "ES2020",
-    "module": "none",
+    // Was "none" (removed in TypeScript 7). Renderer files have no top-level
+    // import/export, so they still emit as classic global scripts for <script> tags.
+    "module": "preserve",
     "lib": ["ES2020", "DOM"],
     "outDir": "dist/src/renderer",
     "rootDir": "src/renderer",
