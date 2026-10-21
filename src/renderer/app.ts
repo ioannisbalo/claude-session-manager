@@ -46,7 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!session) return;
 
     sessions.set(session.id, session);
-    sidebarOrder.push({ type: 'session', id: session.id });
+    appState.sidebarOrder.push({ type: 'session', id: session.id });
     renderSidebar();
     switchToSession(session.id);
     scheduleSave();
@@ -124,7 +124,7 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
     const session = await window.api.createSession();
     if (!session) return;
     sessions.set(session.id, session);
-    sidebarOrder.push({ type: 'session', id: session.id });
+    appState.sidebarOrder.push({ type: 'session', id: session.id });
     terminalPanel.classList.add('visible');
     emptyState.style.display = 'none';
     paneManager.splitPane(paneId, direction, session.id, false);
@@ -170,9 +170,9 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
     });
   }
 
-  function startGroupRename(group: SessionGroup, nameSpan: HTMLSpanElement): void {
-    startRenameInput(nameSpan, group.name, (newName) => {
-      group.name = newName;
+  function startTaskRename(task: Task, titleSpan: HTMLSpanElement): void {
+    startRenameInput(titleSpan, task.title, (newTitle) => {
+      task.title = newTitle;
       scheduleSave();
     });
   }
@@ -238,77 +238,8 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
     return 'merge';
   }
 
-  function handleDrop(draggedId: string, targetId: string, zone: 'above' | 'below' | 'merge', targetIsGroup: boolean): void {
-    if (draggedId === targetId) return;
-
-    if (zone === 'merge') {
-      if (targetIsGroup) {
-        // Drop onto group header — add to group
-        const group = groups.get(targetId);
-        if (!group) return;
-        if (group.sessionIds.includes(draggedId)) return;
-        removeSidebarEntry(draggedId);
-        enforceGroupIntegrity();
-        group.sessionIds.push(draggedId);
-      } else {
-        // Merge two sessions (or add to target's group)
-        const targetGroup = getGroupForSession(targetId);
-        if (targetGroup) {
-          if (targetGroup.sessionIds.includes(draggedId)) return;
-          removeSidebarEntry(draggedId);
-          enforceGroupIntegrity();
-          targetGroup.sessionIds.push(draggedId);
-        } else {
-          // Create new group — remove dragged from old location first
-          removeSidebarEntry(draggedId);
-          enforceGroupIntegrity();
-
-          groupCounter++;
-          const newGroup: SessionGroup = {
-            id: `group-${groupCounter}`,
-            name: `Group ${groupCounter}`,
-            sessionIds: [targetId, draggedId],
-            collapsed: false,
-          };
-          groups.set(newGroup.id, newGroup);
-
-          // Replace target's sidebarOrder entry with the group
-          const targetIdx = sidebarOrder.findIndex(e => e.type === 'session' && e.id === targetId);
-          if (targetIdx !== -1) {
-            sidebarOrder[targetIdx] = { type: 'group', id: newGroup.id };
-          }
-        }
-      }
-    } else {
-      // Reorder (above/below)
-      removeSidebarEntry(draggedId);
-      enforceGroupIntegrity();
-
-      if (targetIsGroup) {
-        const idx = sidebarOrder.findIndex(e => e.type === 'group' && e.id === targetId);
-        if (idx !== -1) {
-          const insertIdx = zone === 'above' ? idx : idx + 1;
-          sidebarOrder.splice(insertIdx, 0, { type: 'session', id: draggedId });
-        }
-      } else {
-        // Find target in sidebarOrder (could be standalone or inside a group)
-        const targetGroup = getGroupForSession(targetId);
-        if (targetGroup) {
-          // Insert into group at target position
-          const tIdx = targetGroup.sessionIds.indexOf(targetId);
-          const insertIdx = zone === 'above' ? tIdx : tIdx + 1;
-          targetGroup.sessionIds.splice(insertIdx, 0, draggedId);
-        } else {
-          const idx = sidebarOrder.findIndex(e => e.type === 'session' && e.id === targetId);
-          if (idx !== -1) {
-            const insertIdx = zone === 'above' ? idx : idx + 1;
-            sidebarOrder.splice(insertIdx, 0, { type: 'session', id: draggedId });
-          }
-        }
-      }
-    }
-
-    enforceGroupIntegrity();
+  function handleDrop(draggedId: string, targetId: string, zone: 'above' | 'below' | 'merge', targetIsTask: boolean): void {
+    TaskLogic.handleDrop(appState, liveSessionIds(), draggedId, targetId, zone, targetIsTask, Date.now());
     renderSidebar();
     scheduleSave();
   }
@@ -343,7 +274,7 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
       await window.api.killSession(id);
       sessions.delete(id);
       removeSidebarEntry(id);
-      enforceGroupIntegrity();
+      pruneDeadSessions();
 
       // Remove the killed session from any pane (collapses its split).
       paneManager.removeSession(id);
@@ -415,13 +346,13 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
     const list = document.getElementById('session-list')!;
     list.innerHTML = '';
 
-    for (const entry of sidebarOrder) {
+    for (const entry of appState.sidebarOrder) {
       if (entry.type === 'session') {
         const session = sessions.get(entry.id);
         if (!session) continue;
         list.appendChild(createSessionLi(entry.id, session, false));
       } else {
-        const group = groups.get(entry.id);
+        const group = appState.tasks.get(entry.id);
         if (!group) continue;
 
         // Group header
@@ -430,7 +361,7 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
         header.dataset.groupId = group.id;
         header.innerHTML = `
           <span class="group-collapse-icon">${group.collapsed ? '▸' : '▾'}</span>
-          <span class="group-name">${group.name}</span>
+          <span class="group-name">${group.title}</span>
           <button class="group-rename-btn" title="Rename group">✎</button>
           <span class="group-count">${group.sessionIds.length}</span>
         `;
@@ -438,7 +369,7 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
         (header.querySelector('.group-rename-btn') as HTMLElement).addEventListener('click', (e: MouseEvent) => {
           e.stopPropagation();
           const nameSpan = header.querySelector('.group-name') as HTMLSpanElement;
-          startGroupRename(group, nameSpan);
+          startTaskRename(group, nameSpan);
         });
 
         header.addEventListener('click', (e: MouseEvent) => {
@@ -502,10 +433,10 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
       const draggedId = e.dataTransfer!.getData('text/plain');
       if (!draggedId || !sessions.has(draggedId)) return;
 
-      // Remove from group/sidebarOrder and add as standalone at end
+      // Remove from group/appState.sidebarOrder and add as standalone at end
       removeSidebarEntry(draggedId);
-      enforceGroupIntegrity();
-      sidebarOrder.push({ type: 'session', id: draggedId });
+      pruneDeadSessions();
+      appState.sidebarOrder.push({ type: 'session', id: draggedId });
       renderSidebar();
       scheduleSave();
     };

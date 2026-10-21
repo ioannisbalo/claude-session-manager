@@ -5,13 +5,14 @@
   "description": "Desktop app for managing multiple Claude Code CLI sessions",
   "main": "dist/main.js",
   "scripts": {
-    "build": "tsc --build && npm run copy-assets",
+    "build": "tsc --build --force && npm run bundle-state && npm run copy-assets",
     "copy-assets": "cp src/renderer/index.html dist/src/renderer/ && cp src/renderer/styles.css dist/src/renderer/",
     "start": "npm run build && electron .",
-    "watch": "tsc -p tsconfig.json --watch & tsc -p tsconfig.renderer.json --watch",
+    "watch": "tsc -p tsconfig.json --watch & tsc -p tsconfig.renderer.json --watch & npm run bundle-state -- --watch",
     "test": "vitest run",
     "test:watch": "vitest",
-    "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper 2>/dev/null || true"
+    "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper 2>/dev/null || true",
+    "bundle-state": "esbuild src/app-state-logic.ts --bundle --format=iife --global-name=TaskLogic --sourcemap --outfile=dist/src/renderer/app-state-logic.js"
   },
   "keywords": [],
   "author": "",
@@ -27,6 +28,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
+    "esbuild": "^0.28.2",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5"
   }

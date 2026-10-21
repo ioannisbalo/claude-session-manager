@@ -64,19 +64,65 @@ interface Window {
   api: ElectronAPI;
 }
 
-interface SessionGroup {
+// --- Task model -----------------------------------------------------------
+// These mirror src/app-state-logic.ts, which is bundled to app-state-logic.js
+// and loaded as the `TaskLogic` global. The renderer cannot import it (scripts
+// load as classic <script> tags), so the shapes are declared here. They are
+// types only — the algorithms have exactly one implementation, in that module.
+
+type TaskStatus = 'backlog' | 'doing' | 'done';
+
+interface Task {
   id: string;
-  name: string;
+  title: string;
+  status: TaskStatus;
   sessionIds: string[];
   collapsed: boolean;
+  createdAt: number;
+  completedAt?: number;
+}
+
+type SidebarEntry = { type: 'session'; id: string } | { type: 'task'; id: string };
+
+interface AppState {
+  tasks: Map<string, Task>;
+  sidebarOrder: SidebarEntry[];
+  taskCounter: number;
 }
 
 interface SavedState {
+  version: number;
   sessions: Array<{ id: string; name: string; cwd: string }>;
-  groups: SessionGroup[];
-  sidebarOrder: Array<{ type: 'session'; id: string } | { type: 'group'; id: string }>;
-  groupCounter: number;
-  layout?: SerializedLayout;
+  tasks: Task[];
+  sidebarOrder: SidebarEntry[];
+  taskCounter: number;
+  layout?: unknown;
 }
+
+declare const TaskLogic: {
+  DONE_VISIBILITY_MS: number;
+  SAVED_STATE_VERSION: number;
+  getTaskForSession(tasks: Map<string, Task>, sessionId: string): Task | undefined;
+  pruneDeadSessions(state: AppState, sessionIds: Set<string>): void;
+  getVisibleSessionOrder(state: AppState, sessionIds: Set<string>): string[];
+  removeSidebarEntry(state: AppState, sessionId: string): void;
+  buildSavedState(
+    sessions: Map<string, { id: string; name: string; cwd: string }>,
+    state: AppState,
+  ): SavedState;
+  reconstructFromSaved(saved: SavedState, idMap: Map<string, string>): AppState;
+  handleDrop(
+    state: AppState,
+    sessionIds: Set<string>,
+    draggedId: string,
+    targetId: string,
+    zone: 'above' | 'below' | 'merge',
+    targetIsTask: boolean,
+    now: number,
+  ): void;
+  setTaskStatus(task: Task, status: TaskStatus, now: number): void;
+  isTaskVisible(task: Task, now: number): boolean;
+  migrateSavedState(raw: unknown, now: number): SavedState;
+};
 
 // TerminalWrapper is declared in terminal.ts and loaded via script tag before app.ts
