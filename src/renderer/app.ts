@@ -51,6 +51,8 @@ document.addEventListener('DOMContentLoaded', () => {
     scheduleSave();
   }
 
+  initSidebarResizer();
+
   // Attempt to restore previous state on startup
   restoreState(paneManager).then((restored) => {
     // Always render: the sections and their `+` buttons are the only way to
@@ -330,7 +332,7 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
   const STATUS_BUTTON: Record<TaskStatus, { glyph: string; title: string }> = {
     backlog: { glyph: '▶', title: 'Pick up' },
     doing: { glyph: '✓', title: 'Mark done' },
-    done: { glyph: '↺', title: 'Reopen' },
+    done: { glyph: '↩', title: 'Reopen' },
   };
 
   /** Section header row. `createIn` is the status a `+` here would create. */
@@ -372,7 +374,7 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
       <span class="group-collapse-icon">${task.collapsed ? '▸' : '▾'}</span>
       <span class="group-name">${task.title}</span>
       <button class="task-status-btn" title="${btn.title}">${btn.glyph}</button>
-      <button class="task-session-btn" title="New session for this task">⊞</button>
+      <button class="task-session-btn" title="New session for this task">+</button>
       <button class="group-rename-btn" title="Rename task">✎</button>
       <button class="task-delete-btn" title="Delete task (sessions are kept)">&times;</button>
       <span class="group-count">${task.sessionIds.length || ''}</span>

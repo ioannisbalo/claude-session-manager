@@ -37,6 +37,7 @@ html, body {
 #sidebar {
   width: var(--sidebar-width);
   min-width: var(--sidebar-width);
+  position: relative;
   background: var(--bg-sidebar);
   border-right: 1px solid var(--border-color);
   display: flex;
@@ -441,14 +442,27 @@ body.resizing .pane-divider {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
   color: var(--text-secondary);
   cursor: pointer;
   border-radius: 6px;
   margin: 2px 8px;
+}
+
+/* The title takes the slack; min-width:0 lets it shrink so the buttons,
+   which are fixed-size, are never pushed out of the row. */
+.group-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-group-header > button,
+.session-group-header > .group-collapse-icon,
+.session-group-header > .group-count {
+  flex: none;
 }
 
 .session-group-header:hover {
@@ -503,15 +517,7 @@ body.resizing .pane-divider {
   border-radius: 6px;
 }
 
-#session-list li.drop-target-above,
-.session-group-header.drop-target-above {
-  box-shadow: 0 -2px 0 0 var(--accent);
-}
 
-#session-list li.drop-target-below,
-.session-group-header.drop-target-below {
-  box-shadow: 0 2px 0 0 var(--accent);
-}
 
 /* xterm overrides */
 .xterm {
@@ -519,7 +525,7 @@ body.resizing .pane-divider {
 }
 
 /* Sidebar sections (Doing / Backlog / Done / Loose) */
-.sidebar-section-header {
+#session-list li.sidebar-section-header {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -531,10 +537,16 @@ body.resizing .pane-divider {
   cursor: default;
 }
 
-.sidebar-section-header .section-label { flex: 1; }
-.sidebar-section-header .section-count { opacity: 0.7; }
-.sidebar-section-header.collapsible { cursor: pointer; }
-.sidebar-section-header.collapsible:hover { color: var(--text, #cdd6f4); }
+#session-list li.sidebar-section-header {
+  margin: 2px 8px;
+  background: none;
+}
+
+#session-list li.sidebar-section-header:hover { background: none; }
+#session-list li.sidebar-section-header .section-label { flex: 1; }
+#session-list li.sidebar-section-header .section-count { opacity: 0.7; }
+#session-list li.sidebar-section-header.collapsible { cursor: pointer; }
+#session-list li.sidebar-section-header.collapsible:hover { color: var(--text, #cdd6f4); }
 
 .section-add-btn,
 .task-status-btn {
@@ -574,3 +586,25 @@ body.resizing .pane-divider {
 
 .task-delete-btn:hover { color: var(--red, #f38ba8); }
 .task-session-btn:hover { color: var(--accent); }
+
+/* Drag handle on the sidebar's trailing edge. Sits inside the sidebar so it
+   does not disturb the flex layout, and is excluded from the window drag
+   region or the mousedown would start a window move instead. */
+#sidebar-resizer {
+  position: absolute;
+  top: 0;
+  right: -2px;
+  width: 5px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 10;
+  -webkit-app-region: no-drag;
+}
+
+#sidebar-resizer:hover,
+body.resizing-sidebar #sidebar-resizer {
+  background: var(--accent);
+  opacity: 0.6;
+}
+
+body.resizing-sidebar { cursor: col-resize; user-select: none; }

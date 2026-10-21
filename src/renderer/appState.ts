@@ -119,3 +119,47 @@ async function restoreState(pm: PaneManager): Promise<boolean> {
 
   return sessions.size > 0;
 }
+
+// --- Sidebar width ---
+
+const SIDEBAR_WIDTH_KEY = 'sidebarWidth';
+const SIDEBAR_MIN = 160;
+const SIDEBAR_MAX = 520;
+
+function applySidebarWidth(px: number): void {
+  const clamped = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, px));
+  document.documentElement.style.setProperty('--sidebar-width', `${clamped}px`);
+}
+
+function initSidebarResizer(): void {
+  // localStorage can throw in some contexts; a failed read just means the
+  // default width from styles.css stands.
+  try {
+    const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+    if (saved) applySidebarWidth(parseInt(saved, 10));
+  } catch { /* keep the stylesheet default */ }
+
+  const resizer = document.getElementById('sidebar-resizer');
+  if (!resizer) return;
+
+  resizer.addEventListener('mousedown', (e: MouseEvent) => {
+    e.preventDefault();
+    document.body.classList.add('resizing-sidebar');
+
+    const onMove = (ev: MouseEvent) => applySidebarWidth(ev.clientX);
+
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.classList.remove('resizing-sidebar');
+      try {
+        const width = getComputedStyle(document.documentElement)
+          .getPropertyValue('--sidebar-width').trim();
+        localStorage.setItem(SIDEBAR_WIDTH_KEY, String(parseInt(width, 10)));
+      } catch { /* width still applies for this session */ }
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
