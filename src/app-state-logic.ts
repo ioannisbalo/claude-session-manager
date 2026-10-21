@@ -74,6 +74,35 @@ export function isTaskVisible(task: Task, now: number): boolean {
   return now - task.completedAt <= DONE_VISIBILITY_MS;
 }
 
+/**
+ * Create a task and register it. Tasks are created empty — sessions are
+ * attached afterwards, which is what makes a task a todo item rather than a
+ * container for sessions that already exist.
+ */
+export function createTask(state: AppState, title: string, status: TaskStatus, now: number): Task {
+  state.taskCounter++;
+  const trimmed = title.trim();
+  const task: Task = {
+    id: `task-${state.taskCounter}`,
+    title: trimmed === '' ? 'New task' : trimmed,
+    status,
+    sessionIds: [],
+    collapsed: false,
+    createdAt: now,
+  };
+  state.tasks.set(task.id, task);
+  return task;
+}
+
+/**
+ * Delete a task. Its sessions are orphaned, not killed: "loose" means belonging
+ * to no task, so dropping the task is all that is required. Killing a session
+ * stays an explicit, separate act.
+ */
+export function deleteTask(state: AppState, taskId: string): void {
+  state.tasks.delete(taskId);
+}
+
 export function getTaskForSession(tasks: Map<string, Task>, sessionId: string): Task | undefined {
   for (const task of tasks.values()) {
     if (task.sessionIds.includes(sessionId)) return task;

@@ -16,6 +16,8 @@ import {
   DONE_VISIBILITY_MS,
   migrateSavedState,
   SAVED_STATE_VERSION,
+  createTask,
+  deleteTask,
 } from './app-state-logic';
 
 function createState(overrides?: Partial<AppState>): AppState {
@@ -789,6 +791,50 @@ describe('app-state-logic', () => {
         expect(result.sidebarOrder).toEqual([]);
         expect(result.taskCounter).toBe(0);
       }
+    });
+  });
+
+  describe('createTask', () => {
+    it('registers a task with a generated id and the given status', () => {
+      const state = createState({ taskCounter: 4 });
+
+      const task = createTask(state, 'Fix webhook retry', 'backlog', 1234);
+
+      expect(task).toEqual({
+        id: 'task-5',
+        title: 'Fix webhook retry',
+        status: 'backlog',
+        sessionIds: [],
+        collapsed: false,
+        createdAt: 1234,
+      });
+      expect(state.tasks.get('task-5')).toBe(task);
+      expect(state.taskCounter).toBe(5);
+    });
+
+    it('trims the title and falls back when it is blank', () => {
+      const state = createState();
+      expect(createTask(state, '  spaced  ', 'doing', 0).title).toBe('spaced');
+      expect(createTask(state, '   ', 'doing', 0).title).toBe('New task');
+    });
+  });
+
+  describe('deleteTask', () => {
+    it('removes the task and orphans its sessions rather than killing them', () => {
+      const state = createState();
+      const task = createTask(state, 'Doomed', 'doing', 0);
+      task.sessionIds = ['s1', 's2'];
+
+      deleteTask(state, task.id);
+
+      expect(state.tasks.has(task.id)).toBe(false);
+      expect(getTaskForSession(state.tasks, 's1')).toBeUndefined();
+      expect(getTaskForSession(state.tasks, 's2')).toBeUndefined();
+    });
+
+    it('is a no-op for an unknown id', () => {
+      const state = createState();
+      expect(() => deleteTask(state, 'nope')).not.toThrow();
     });
   });
 });
