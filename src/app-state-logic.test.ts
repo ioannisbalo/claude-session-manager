@@ -723,6 +723,50 @@ describe('app-state-logic', () => {
       expect(twice).toEqual(once);
     });
 
+    it('drops malformed array elements instead of throwing', () => {
+      expect(() => migrateSavedState({ groups: [null] }, 9000)).not.toThrow();
+      expect(migrateSavedState({ groups: [null, 5, 'x'] }, 9000).tasks).toEqual([]);
+
+      expect(() => migrateSavedState({ sidebarOrder: [null] }, 9000)).not.toThrow();
+      expect(
+        migrateSavedState({ sidebarOrder: [null, { type: 'bogus', id: 'x' }] }, 9000).sidebarOrder,
+      ).toEqual([]);
+    });
+
+    it('keeps v2 tasks when the version field is missing or unrecognised', () => {
+      const v2shape = {
+        sessions: [],
+        tasks: [{ id: 't1', title: 'Keep me', status: 'doing', sessionIds: ['s1'], collapsed: false, createdAt: 5 }],
+        sidebarOrder: [{ type: 'task', id: 't1' }],
+        taskCounter: 5,
+      };
+
+      for (const variant of [v2shape, { ...v2shape, version: 3 }, { ...v2shape, version: '2' }]) {
+        const result = migrateSavedState(variant, 9000);
+        expect(result.tasks).toHaveLength(1);
+        expect(result.tasks[0].id).toBe('t1');
+        expect(result.sidebarOrder).toEqual([{ type: 'task', id: 't1' }]);
+        expect(result.taskCounter).toBe(5);
+      }
+    });
+
+    it('normalises an incomplete v2 task so the load pipeline cannot crash on it', () => {
+      const migrated = migrateSavedState(
+        { version: 2, sessions: [], tasks: [{ id: 't1' }], sidebarOrder: [{ type: 'task', id: 't1' }], taskCounter: 0 },
+        9000,
+      );
+
+      expect(migrated.tasks[0]).toEqual({
+        id: 't1',
+        title: 't1',
+        status: 'doing',
+        sessionIds: [],
+        collapsed: false,
+        createdAt: 9000,
+      });
+      expect(() => reconstructFromSaved(migrated, new Map())).not.toThrow();
+    });
+
     it('returns usable empty state for malformed input instead of throwing', () => {
       for (const bad of [null, undefined, 42, 'nonsense', {}, { groups: 'not an array' }]) {
         const result = migrateSavedState(bad, 9000);

@@ -180,59 +180,90 @@ export function reconstructFromSaved(
 
 type SavedSession = { id: string; name: string; cwd: string };
 
-interface SavedGroupV1 {
-  id: string;
-  name: string;
-  sessionIds: string[];
-  collapsed: boolean;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
-function asArray<T>(value: unknown): T[] {
-  return Array.isArray(value) ? (value as T[]) : [];
+function asRecords(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+function toSession(raw: Record<string, unknown>): SavedSession | null {
+  const { id, name, cwd } = raw;
+  if (typeof id !== 'string' || typeof name !== 'string' || typeof cwd !== 'string') return null;
+  return { id, name, cwd };
+}
+
+/**
+ * Build a well-formed Task from whatever the state file actually contained.
+ * Every field is defaulted, because the only thing a saved file guarantees is
+ * that it parsed as JSON — and reconstructFromSaved dereferences sessionIds.
+ */
+function toTask(raw: Record<string, unknown>, title: unknown, now: number): Task | null {
+  const id = raw.id;
+  if (typeof id !== 'string' || id === '') return null;
+
+  const status = raw.status;
+  const task: Task = {
+    id,
+    title: typeof title === 'string' ? title : id,
+    status: status === 'backlog' || status === 'doing' || status === 'done' ? status : 'doing',
+    sessionIds: Array.isArray(raw.sessionIds)
+      ? raw.sessionIds.filter((sid): sid is string => typeof sid === 'string')
+      : [],
+    collapsed: raw.collapsed === true,
+    createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : now,
+  };
+  if (typeof raw.completedAt === 'number') task.completedAt = raw.completedAt;
+  return task;
+}
+
+/**
+ * v1 wrote `group` entries, v2 writes `task`. Anything else is dropped rather
+ * than coerced — mapping an unknown type onto 'session' would invent a sidebar
+ * entry pointing at a session that does not exist.
+ */
+function toSidebarEntry(raw: Record<string, unknown>): SidebarEntry | null {
+  const { id, type } = raw;
+  if (typeof id !== 'string') return null;
+  if (type === 'session') return { type: 'session', id };
+  if (type === 'task' || type === 'group') return { type: 'task', id };
+  return null;
+}
+
+function notNull<T>(value: T | null): value is T {
+  return value !== null;
 }
 
 /**
  * Bring a saved state file up to the current version. Tolerates malformed and
- * hand-edited files by falling back to empty collections rather than throwing —
+ * hand-edited files by dropping what it cannot understand rather than throwing —
  * a corrupt state file should cost the sidebar layout, not the app's startup.
+ *
+ * v1 is detected positively (it has `groups` and no `tasks`) rather than by
+ * `version !== 2`. Deciding by the version number would treat a hand-edited file
+ * whose `version` key was dropped or mistyped as v1 and silently discard every
+ * task in it — the exact data loss the durable-task model exists to prevent.
  */
 export function migrateSavedState(raw: unknown, now: number): SavedState {
-  if (typeof raw !== 'object' || raw === null) {
+  if (!isRecord(raw)) {
     return { version: SAVED_STATE_VERSION, sessions: [], tasks: [], sidebarOrder: [], taskCounter: 0 };
   }
 
-  const state = raw as Record<string, unknown>;
+  const isV1 = Array.isArray(raw.groups) && !Array.isArray(raw.tasks);
 
-  if (state.version === SAVED_STATE_VERSION) {
-    return {
-      version: SAVED_STATE_VERSION,
-      sessions: asArray<SavedSession>(state.sessions),
-      tasks: asArray<Task>(state.tasks),
-      sidebarOrder: asArray<SidebarEntry>(state.sidebarOrder),
-      taskCounter: typeof state.taskCounter === 'number' ? state.taskCounter : 0,
-    };
-  }
+  const tasks = isV1
+    ? asRecords(raw.groups).map(group => toTask(group, group.name, now)).filter(notNull)
+    : asRecords(raw.tasks).map(task => toTask(task, task.title, now)).filter(notNull);
 
-  const tasks: Task[] = asArray<SavedGroupV1>(state.groups).map(group => ({
-    id: group.id,
-    title: group.name,
-    status: 'doing' as const,
-    sessionIds: asArray<string>(group.sessionIds),
-    collapsed: group.collapsed === true,
-    createdAt: now,
-  }));
-
-  const sidebarOrder: SidebarEntry[] = asArray<{ type: string; id: string }>(state.sidebarOrder)
-    .map(entry => entry.type === 'group'
-      ? { type: 'task' as const, id: entry.id }
-      : { type: 'session' as const, id: entry.id });
+  const counter = isV1 ? raw.groupCounter : raw.taskCounter;
 
   return {
     version: SAVED_STATE_VERSION,
-    sessions: asArray<SavedSession>(state.sessions),
+    sessions: asRecords(raw.sessions).map(toSession).filter(notNull),
     tasks,
-    sidebarOrder,
-    taskCounter: typeof state.groupCounter === 'number' ? state.groupCounter : 0,
+    sidebarOrder: asRecords(raw.sidebarOrder).map(toSidebarEntry).filter(notNull),
+    taskCounter: typeof counter === 'number' ? counter : 0,
   };
 }
 
