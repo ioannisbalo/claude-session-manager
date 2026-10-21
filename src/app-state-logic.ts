@@ -71,6 +71,17 @@ export function isTaskVisible(task: Task, now: number): boolean {
 }
 
 /**
+ * Strip a leading markdown/notes list marker, so a title pasted straight out of
+ * a checklist ("- [ ] Improve LiFi integration") becomes the task's text rather
+ * than carrying the checkbox the sidebar already draws. Only a marker at the
+ * very start is removed — brackets elsewhere, like "Fix [BLOC-123] retry", are
+ * left alone.
+ */
+export function normalizeTaskTitle(raw: string): string {
+  return raw.trim().replace(/^(?:[-*\u2022]\s*)?(?:\[[ xX]\]\s*)?/, '').trim();
+}
+
+/**
  * Create a task and register it. Tasks are created empty — sessions are
  * attached afterwards, which is what makes a task a todo item rather than a
  * container for sessions that already exist.
@@ -155,7 +166,7 @@ export function partitionSidebar(
  */
 export function createTask(state: AppState, title: string, status: TaskStatus, now: number): Task {
   state.taskCounter++;
-  const trimmed = title.trim();
+  const trimmed = normalizeTaskTitle(title);
   const task: Task = {
     id: `task-${state.taskCounter}`,
     title: trimmed === '' ? 'New task' : trimmed,

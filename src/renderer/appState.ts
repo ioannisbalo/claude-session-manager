@@ -70,6 +70,15 @@ function runningSessionIds(): Set<string> {
   return running;
 }
 
+/**
+ * Tasks outlive their sessions, so a backlog with nothing running is still
+ * state worth writing. Gating the save on sessions alone silently discarded
+ * every task that had no session attached.
+ */
+function hasPersistableState(): boolean {
+  return sessions.size > 0 || appState.tasks.size > 0;
+}
+
 function sidebarSections(): SidebarSections {
   return TaskLogic.partitionSidebar(appState, liveSessionIds(), runningSessionIds(), Date.now());
 }

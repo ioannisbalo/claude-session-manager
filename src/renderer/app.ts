@@ -29,14 +29,14 @@ document.addEventListener('DOMContentLoaded', () => {
   initScheduleSave(() => {
     if (saveTimeout !== undefined) clearTimeout(saveTimeout);
     saveTimeout = window.setTimeout(async () => {
-      if (sessions.size > 0) {
+      if (hasPersistableState()) {
         await window.api.saveState(buildSavedState(paneManager));
       }
     }, 500);
   });
 
   window.api.onSaveAndQuit(async () => {
-    if (sessions.size > 0) {
+    if (hasPersistableState()) {
       await window.api.saveState(buildSavedState(paneManager));
     }
   });
@@ -189,7 +189,7 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
 
   function startTaskRename(task: Task, titleSpan: HTMLSpanElement): void {
     startRenameInput(titleSpan, task.title, (newTitle) => {
-      task.title = newTitle;
+      task.title = TaskLogic.normalizeTaskTitle(newTitle) || task.title;
       scheduleSave();
     });
   }

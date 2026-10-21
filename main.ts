@@ -257,12 +257,24 @@ function createWindow(): void {
       cancelId: 1,
       title: 'Restore Previous Sessions',
       message: 'A previous session layout was found.',
-      detail: 'Would you like to restore your previous sessions and groups?',
+      detail: 'Restore your previous sessions? Your tasks are kept either way.',
     });
 
     if (response !== 0) {
-      fs.unlinkSync(statePath);
-      return null;
+      // "Start Fresh" means fresh *sessions*. Tasks outlive their sessions, so
+      // deleting the file here would silently discard the user's whole backlog.
+      try {
+        const kept = JSON.parse(fs.readFileSync(statePath, 'utf-8'));
+        delete kept.layout;
+        kept.sessions = [];
+        const serialized = JSON.stringify(kept);
+        fs.writeFileSync(statePath, serialized, 'utf-8');
+        lastKnownState = serialized;
+        return serialized;
+      } catch {
+        fs.unlinkSync(statePath);
+        return null;
+      }
     }
 
     try {
