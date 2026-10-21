@@ -552,3 +552,25 @@ body.resizing .pane-divider {
 /* Rename stays out of the way until the row is hovered. */
 .session-group-header .group-rename-btn { visibility: hidden; }
 .session-group-header:hover .group-rename-btn { visibility: visible; }
+
+/* Task row controls: destructive and secondary actions stay hidden until hover */
+.session-group-header .group-rename-btn,
+.session-group-header .task-delete-btn,
+.session-group-header .task-session-btn { visibility: hidden; }
+
+.session-group-header:hover .group-rename-btn,
+.session-group-header:hover .task-delete-btn,
+.session-group-header:hover .task-session-btn { visibility: visible; }
+
+.task-delete-btn,
+.task-session-btn {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 4px;
+  font-size: 12px;
+}
+
+.task-delete-btn:hover { color: var(--red, #f38ba8); }
+.task-session-btn:hover { color: var(--accent); }

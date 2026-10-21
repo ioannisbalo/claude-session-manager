@@ -55,6 +55,23 @@ function advanceTaskStatus(task: Task): void {
   TaskLogic.setTaskStatus(task, next, Date.now());
 }
 
+function addTask(status: TaskStatus): Task {
+  return TaskLogic.createTask(appState, '', status, Date.now());
+}
+
+function removeTask(taskId: string): void {
+  TaskLogic.deleteTask(appState, taskId);
+}
+
+/**
+ * Attach a session to a task, moving it off any task it already belongs to.
+ * Wraps handleDrop for now; Task 5 renames the underlying function and only
+ * this body changes.
+ */
+function attachSessionToTask(sessionId: string, taskId: string): void {
+  TaskLogic.handleDrop(appState, liveSessionIds(), sessionId, taskId, 'merge', true, Date.now());
+}
+
 // --- State persistence ---
 
 function buildSavedState(pm: PaneManager): string {

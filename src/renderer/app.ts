@@ -356,6 +356,17 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
       add.className = 'section-add-btn';
       add.title = `New ${label.toLowerCase()} task`;
       add.textContent = '+';
+      add.addEventListener('click', (e: MouseEvent) => {
+        e.stopPropagation();
+        const task = addTask(createIn);
+        if (createIn === 'backlog') backlogCollapsed = false;
+        renderSidebar();
+        // Open the new row's title straight away, so creating a task is:
+        // click +, type, Enter.
+        const row = document.querySelector(`[data-task-id="${task.id}"] .group-name`) as HTMLSpanElement | null;
+        if (row) startTaskRename(task, row);
+        scheduleSave();
+      });
       li.appendChild(add);
     }
     return li;
@@ -371,7 +382,9 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
       <span class="group-collapse-icon">${task.collapsed ? '▸' : '▾'}</span>
       <span class="group-name">${task.title}</span>
       <button class="task-status-btn" title="${btn.title}">${btn.glyph}</button>
+      <button class="task-session-btn" title="New session for this task">⊞</button>
       <button class="group-rename-btn" title="Rename task">✎</button>
+      <button class="task-delete-btn" title="Delete task (sessions are kept)">&times;</button>
       <span class="group-count">${task.sessionIds.length || ''}</span>
     `;
 
@@ -387,9 +400,28 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
       startTaskRename(task, header.querySelector('.group-name') as HTMLSpanElement);
     });
 
+    (header.querySelector('.task-delete-btn') as HTMLElement).addEventListener('click', (e: MouseEvent) => {
+      e.stopPropagation();
+      removeTask(task.id);
+      renderSidebar();
+      scheduleSave();
+    });
+
+    (header.querySelector('.task-session-btn') as HTMLElement).addEventListener('click', async (e: MouseEvent) => {
+      e.stopPropagation();
+      const session = await window.api.createSession();
+      if (!session) return;
+      sessions.set(session.id, session);
+      attachSessionToTask(session.id, task.id);
+      renderSidebar();
+      scheduleSave();
+      switchToSession(session.id);
+    });
+
     header.addEventListener('click', (e: MouseEvent) => {
       const cls = (e.target as HTMLElement).classList;
       if (cls.contains('group-rename-btn') || cls.contains('task-status-btn')) return;
+      if (cls.contains('task-delete-btn') || cls.contains('task-session-btn')) return;
       if (cls.contains('session-rename-input')) return;
       task.collapsed = !task.collapsed;
       renderSidebar();
