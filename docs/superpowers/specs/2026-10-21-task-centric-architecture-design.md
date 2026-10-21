@@ -136,7 +136,11 @@ scope here.
 ## Phasing
 
 1. **Inversion in the tested copy** — specified below
-2. **Renderer port + task sidebar UI** — makes it real; dogfood against Notes
+2. **Renderer port + task sidebar UI** — makes it real; dogfood against Notes.
+   Split in execution: **2a** carry the pane layout through migration *(done)*,
+   **2b** bundle the module and delete the duplicate implementations *(done)*,
+   **2c** the task sidebar itself — see
+   `2026-10-21-task-sidebar-design.md`
 3. **Repos on a task + worktree creation**
 4. **Worktree lifecycle** — branch, PR, prune. The unglamorous part that decides
    usability; creation without pruning is a mess generator
