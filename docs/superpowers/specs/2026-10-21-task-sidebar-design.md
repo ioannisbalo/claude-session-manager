@@ -40,7 +40,12 @@ sessions-first with a backlog drawer, which is closest to today's code but makes
 the todo list second-class — the opposite of the point.
 
 Sections give `isTaskVisible` its first consumer: the Done strip shows a task
-only while it is inside the 24h window, so completed work ages out on its own.
+only while it is inside the 24h window, so completed work ages out on its own —
+**except while it still holds live sessions**. A done task whose window lapsed
+with a session still running would vanish from every section, and because
+"loose" means *belongs to no task*, its sessions would not be loose either:
+they would keep running, unreachable from the sidebar and from Cmd+Arrow. So
+the rule is `status === 'done' && (isTaskVisible(task, now) || hasLiveSessions)`.
 Ageing out is **hiding, not deleting** — the task stays in the store, which is
 what keeps a derived standup view possible later.
 
