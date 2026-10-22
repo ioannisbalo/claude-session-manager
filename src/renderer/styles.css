@@ -739,15 +739,14 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
 
 #task-modal #task-modal-link-input.invalid { border-color: var(--red, #f38ba8); }
 
-/* Task row controls appear on hover only. display:none rather than
+/* Secondary row controls appear on hover only; the status button stays, since
+   it is the verb used dozens of times a day. display:none rather than
    visibility:hidden — visibility still reserves the buttons' width, which is
    the space the title is meant to get back. */
-.session-group-header .task-status-btn,
 .session-group-header .task-session-btn,
 .session-group-header .group-rename-btn,
 .session-group-header .task-delete-btn { display: none; }
 
-.session-group-header:hover .task-status-btn,
 .session-group-header:hover .task-session-btn,
 .session-group-header:hover .group-rename-btn,
 .session-group-header:hover .task-delete-btn { display: inline-block; }

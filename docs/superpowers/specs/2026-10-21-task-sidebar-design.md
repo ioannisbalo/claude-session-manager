@@ -82,12 +82,11 @@ One button per task row whose meaning follows its section:
 | Backlog | `▶` | → `doing` |
 | Done | `↺` | → `doing` |
 
-Revealed on hover, along with the other row controls (2026-10-22). This
-reverses the original decision to keep the status button always visible: with
-four controls reserving width on every row, the title — the thing you actually
-read — was squeezed into a fraction of a narrow sidebar. `display: none` rather
-than `visibility: hidden`, so the space is genuinely returned. The cost is one
-hover before the primary verb is clickable. All three call `setTaskStatus(task, status, Date.now())`, which
+Always visible, since these are the two daily verbs — picking work up and
+closing it. The *other* row controls are hover-only, and as of 2026-10-22 they
+use `display: none` rather than `visibility: hidden`: visibility still reserved
+their width, so the title never got that space back on a sidebar narrow enough
+for it to matter. All three call `setTaskStatus(task, status, Date.now())`, which
 maintains `completedAt` and therefore drives the Done strip's window.
 
 Drag-between-sections was rejected as slow for an action repeated all day, and
@@ -98,8 +97,9 @@ not have.
 ## Interaction details
 
 **Row anatomy.** Task: `▾ title [▶|✓|↺] ✎ × (n)`. At rest only the collapse
-icon, title and session count show; every control appears on hover, so a narrow
-row is not drowned and the title gets the full width it is read at. Session
+icon, title, status button and session count show; rename, delete and
+`+ session` appear on hover, so a narrow row is not drowned and the title keeps
+the width it is read at. Session
 rows keep today's `● name ×`.
 
 **Creating tasks.** `+` in the Doing or Backlog header opens an inline input in
