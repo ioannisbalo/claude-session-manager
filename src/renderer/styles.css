@@ -699,3 +699,53 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
   opacity: 0.4;
   cursor: default;
 }
+
+#task-modal .task-modal-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+#task-modal .task-modal-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+}
+
+#task-modal .task-modal-list .entry-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#task-modal .task-modal-list .entry-value.clickable {
+  cursor: pointer;
+  color: var(--accent);
+}
+
+#task-modal .task-modal-list .entry-remove {
+  flex: none;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+#task-modal .task-modal-add {
+  margin-top: 4px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+#task-modal #task-modal-link-input.invalid { border-color: var(--red, #f38ba8); }

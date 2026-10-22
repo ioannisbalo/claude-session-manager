@@ -358,8 +358,47 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
   const modalSave = document.getElementById('task-modal-save') as HTMLButtonElement;
   const modalCancel = document.getElementById('task-modal-cancel') as HTMLButtonElement;
 
+  const modalRepoList = document.getElementById('task-modal-repos') as HTMLUListElement;
+  const modalLinkList = document.getElementById('task-modal-links') as HTMLUListElement;
+  const modalLinkInput = document.getElementById('task-modal-link-input') as HTMLInputElement;
+
+  let modalRepos: string[] = [];
+  let modalLinks: string[] = [];
+
   let modalMode: 'create' | 'edit' = 'create';
   let modalCreateStatus: TaskStatus = 'backlog';
+
+  function renderModalList(kind: 'repos' | 'links'): void {
+    const list = kind === 'repos' ? modalRepoList : modalLinkList;
+    const values = kind === 'repos' ? modalRepos : modalLinks;
+    list.innerHTML = '';
+
+    values.forEach((value, index) => {
+      const li = document.createElement('li');
+
+      const text = document.createElement('span');
+      text.className = kind === 'links' ? 'entry-value clickable' : 'entry-value';
+      text.textContent = value;   // user-supplied: never into innerHTML
+      text.title = value;
+      if (kind === 'links') {
+        text.addEventListener('click', () => { window.api.openUrl(value); });
+      }
+
+      const remove = document.createElement('button');
+      remove.className = 'entry-remove';
+      remove.type = 'button';
+      remove.title = 'Remove';
+      remove.textContent = '×';
+      remove.addEventListener('click', (e: MouseEvent) => {
+        e.stopPropagation();   // must not open the link
+        values.splice(index, 1);
+        renderModalList(kind);
+      });
+
+      li.append(text, remove);
+      list.appendChild(li);
+    });
+  }
 
   function syncModalSaveEnabled(): void {
     modalSave.disabled = modalTitle.value.trim() === '';
@@ -369,6 +408,14 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
     modalTitle.value = task?.title ?? '';
     modalDescription.value = task?.description ?? '';
     modalType.value = task?.type ?? '';
+    // Absent means empty: a task saved before these fields existed has neither.
+    modalRepos = [...(task?.repos ?? [])];
+    modalLinks = [...(task?.links ?? [])];
+    modalLinkInput.hidden = true;
+    modalLinkInput.value = '';
+    modalLinkInput.classList.remove('invalid');
+    renderModalList('repos');
+    renderModalList('links');
     syncModalSaveEnabled();
   }
 
@@ -402,6 +449,8 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
       createTaskFromModal(title, modalCreateStatus, {
         ...(description !== '' ? { description } : {}),
         ...(type !== '' ? { type } : {}),
+        ...(modalRepos.length > 0 ? { repos: [...modalRepos] } : {}),
+        ...(modalLinks.length > 0 ? { links: [...modalLinks] } : {}),
       });
       if (modalCreateStatus === 'backlog') expandBacklog();
     }
@@ -410,6 +459,44 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
     scheduleSave();
     return true;
   }
+
+  document.getElementById('task-modal-add-repo')!.addEventListener('click', async () => {
+    const dir = await window.api.pickDirectory();
+    if (!dir) return;   // cancelled
+    modalRepos.push(dir);
+    renderModalList('repos');
+  });
+
+  document.getElementById('task-modal-add-link')!.addEventListener('click', () => {
+    modalLinkInput.hidden = false;
+    modalLinkInput.focus();
+  });
+
+  modalLinkInput.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();   // cancel the input, not the modal
+      modalLinkInput.hidden = true;
+      modalLinkInput.value = '';
+      modalLinkInput.classList.remove('invalid');
+      return;
+    }
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const value = modalLinkInput.value.trim();
+    // open-url silently ignores anything else, so a stored ftp:// row would
+    // look saved and do nothing. Refuse it here instead.
+    if (!value.startsWith('https://') && !value.startsWith('http://')) {
+      modalLinkInput.classList.add('invalid');
+      return;
+    }
+    modalLinks.push(value);
+    modalLinkInput.value = '';
+    modalLinkInput.classList.remove('invalid');
+    renderModalList('links');
+  });
 
   modalSave.addEventListener('click', () => {
     if (saveTaskModal()) closeTaskModal();
