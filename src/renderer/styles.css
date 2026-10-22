@@ -18,6 +18,11 @@
   --color-needs-input: #F59E0B;
   --color-done: #f38ba8;
   --accent: #cba6f7;
+  --type-feature: #a6e3a1;
+  --type-bug: #f38ba8;
+  --type-chore: #f9e2af;
+  --type-review: #89b4fa;
+  --type-spike: #fab387;
 }
 
 html, body {
@@ -470,8 +475,9 @@ body.resizing .pane-divider {
 }
 
 .group-collapse-icon {
-  font-size: 10px;
-  width: 12px;
+  font-size: 13px;
+  width: 14px;
+  flex: none;
 }
 
 .group-rename-btn {
@@ -750,3 +756,12 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
 .session-group-header:hover .task-session-btn,
 .session-group-header:hover .group-rename-btn,
 .session-group-header:hover .task-delete-btn { display: inline-block; }
+
+/* The collapse triangle doubles as the task's type colour. Untyped tasks
+   inherit the row colour, so an unset type reads as "none" rather than a
+   sixth meaning. */
+.session-group-header[data-task-type="feature"] .group-collapse-icon { color: var(--type-feature); }
+.session-group-header[data-task-type="bug"]     .group-collapse-icon { color: var(--type-bug); }
+.session-group-header[data-task-type="chore"]   .group-collapse-icon { color: var(--type-chore); }
+.session-group-header[data-task-type="review"]  .group-collapse-icon { color: var(--type-review); }
+.session-group-header[data-task-type="spike"]   .group-collapse-icon { color: var(--type-spike); }

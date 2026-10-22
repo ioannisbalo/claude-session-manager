@@ -609,6 +609,7 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
     const header = document.createElement('li');
     header.className = 'session-group-header';
     header.dataset.taskId = task.id;
+    if (task.type) header.dataset.taskType = task.type;
 
     const btn = STATUS_BUTTON[task.status];
     header.innerHTML = `
