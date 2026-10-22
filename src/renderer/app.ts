@@ -187,12 +187,6 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
     });
   }
 
-  function startTaskRename(task: Task, titleSpan: HTMLSpanElement): void {
-    startRenameInput(titleSpan, task.title, (newTitle) => {
-      task.title = newTitle;
-      scheduleSave();
-    });
-  }
 
   function showCorrectionDropdown(dot: HTMLElement, sessionId: string, currentStatus: SessionStatus): void {
     document.querySelector('.correction-dropdown')?.remove();
@@ -367,6 +361,7 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
 
   let modalMode: 'create' | 'edit' = 'create';
   let modalCreateStatus: TaskStatus = 'backlog';
+  let modalEditTarget: Task | null = null;
 
   function renderModalList(kind: 'repos' | 'links'): void {
     const list = kind === 'repos' ? modalRepoList : modalLinkList;
@@ -421,13 +416,15 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
 
   function openTaskModal(mode: 'create' | 'edit', context: TaskStatus | Task): void {
     modalMode = mode;
+    modalEditTarget = null;
     if (mode === 'create') {
       modalCreateStatus = context as TaskStatus;
       modalHeading.textContent = 'New task';
       fillModalFields(null);
     } else {
+      modalEditTarget = context as Task;
       modalHeading.textContent = 'Edit task';
-      fillModalFields(context as Task);
+      fillModalFields(modalEditTarget);
     }
     modal.hidden = false;
     modalTitle.focus();
@@ -435,6 +432,16 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
 
   function closeTaskModal(): void {
     modal.hidden = true;
+  }
+
+  /** Set when present, delete when cleared — an emptied field leaves no key. */
+  function applyOptionalField<K extends 'description' | 'type' | 'repos' | 'links'>(
+    task: Task,
+    key: K,
+    value: Task[K] | undefined,
+  ): void {
+    if (value === undefined) delete task[key];
+    else task[key] = value;
   }
 
   /** Writes the modal's values. Returns false when the title is blank. */
@@ -453,6 +460,13 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
         ...(modalLinks.length > 0 ? { links: [...modalLinks] } : {}),
       });
       if (modalCreateStatus === 'backlog') expandBacklog();
+    } else if (modalEditTarget) {
+      const task = modalEditTarget;
+      task.title = title;
+      applyOptionalField(task, 'description', description !== '' ? description : undefined);
+      applyOptionalField(task, 'type', type !== '' ? type : undefined);
+      applyOptionalField(task, 'repos', modalRepos.length > 0 ? [...modalRepos] : undefined);
+      applyOptionalField(task, 'links', modalLinks.length > 0 ? [...modalLinks] : undefined);
     }
 
     renderSidebar();
@@ -512,6 +526,10 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
     if (e.key !== 'Enter' || e.metaKey) return;
     e.preventDefault();
     if (!saveTaskModal()) return;
+    if (modalMode === 'edit') {
+      closeTaskModal();
+      return;
+    }
     // Create mode stays open, cleared, for the next capture.
     fillModalFields(null);
     modalTitle.focus();
@@ -584,7 +602,7 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
 
     (header.querySelector('.group-rename-btn') as HTMLElement).addEventListener('click', (e: MouseEvent) => {
       e.stopPropagation();
-      startTaskRename(task, header.querySelector('.group-name') as HTMLSpanElement);
+      openTaskModal('edit', task);
     });
 
     (header.querySelector('.task-delete-btn') as HTMLElement).addEventListener('click', (e: MouseEvent) => {
