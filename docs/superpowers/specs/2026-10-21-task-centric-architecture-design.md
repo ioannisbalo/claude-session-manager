@@ -141,6 +141,10 @@ scope here.
    **2b** bundle the module and delete the duplicate implementations *(done)*,
    **2c** the task sidebar itself — see
    `2026-10-21-task-sidebar-design.md`
+2d. **Task detail modal** — one creation/edit surface carrying description,
+   type, repos and links. Comes before Phase 3 because it is the surface that
+   phase's metadata is entered through. See
+   `2026-10-22-task-detail-modal-design.md`
 3. **Repos on a task + worktree creation**
 4. **Worktree lifecycle** — branch, PR, prune. The unglamorous part that decides
    usability; creation without pruning is a mess generator
