@@ -166,6 +166,50 @@ neither has had a design pass.
   someone else's branch, and research may want no repo at all. The design
   question is which axes vary by type: worktree strategy, the starting prompt or
   skill, whether a session is needed, the default status flow.
+- **How a task jumpstarts its session** — answered 2026-10-22, by testing the
+  CLI rather than reasoning about it. Three mechanisms exist, and they are not
+  interchangeable:
+
+  1. **argv initial prompt.** `claude "<prompt>"` takes a prompt positionally,
+     and a slash command there **is** resolved as a skill. Verified with
+     `claude -p "/zzz-definitely-not-a-real-skill"`, which answered "isn't
+     installed in this session, so nothing ran" and suggested the real ones —
+     "nothing ran" being the tell that a real skill would have. `SessionManager`
+     already builds an args array (it passes `--continue`), so this is a small
+     change.
+  2. **PTY injection after spawn.** Writing `/skill-name\n` to the terminal.
+     Already wired end to end (`SessionManager.write`, the `session:input`
+     channel) and, unlike argv, works mid-session. The catch is timing: injected
+     before Claude Code's TUI is ready, the keystrokes are swallowed. The signal
+     for "ready" already exists — `StateDetector` reports the session reaching
+     `idle` — so the sequence is spawn → await first idle → inject.
+  3. **`--agent <agent>`**, which configures the session rather than issuing a
+     command, with `--append-system-prompt` available to carry standing context.
+     For a Review task "this session *is* a reviewer" may beat "this session
+     opens by running the review skill", since the framing persists across the
+     whole conversation instead of being one opening move.
+
+  Skills are slash commands — `--disable-slash-commands` is documented as
+  "Disable all skills and commands" — so anything typeable is reachable by all
+  three routes.
+
+  **What this makes concrete:** per-type behaviour collapses to roughly
+  `{ worktree: boolean, initialPrompt: template, agent?: string }` —
+
+  | Type | Worktree | Opening move |
+  |---|---|---|
+  | Review | no — fetch someone else's branch | a review skill |
+  | Feature | yes | the task description |
+  | Bug | yes | description, plus "reproduce first" |
+  | Chore | yes | none |
+  | Spike | possibly no repo at all | the description |
+
+  **The choice still open:** argv means the opening move happens before you see
+  the session; injection means you watch it arrive in the pane. For a
+  description-as-prompt, argv is cleaner. For a skill on a Review task,
+  injection may be better — seeing `/pre-push-review` land makes it obvious what
+  the session was told to do, rather than it appearing to start mid-thought.
+
 - **A fuller task creation surface** — a modal rather than the inline title
   input, carrying a description and links. Worth noting this is not cosmetic:
   the description is the natural source of the *starting prompt* for a task's
