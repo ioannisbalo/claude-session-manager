@@ -363,6 +363,11 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
   let modalCreateStatus: TaskStatus = 'backlog';
   let modalEditTarget: Task | null = null;
 
+  /** Final path segment, tolerating a trailing slash. Falls back to the path. */
+  function directoryName(fullPath: string): string {
+    return fullPath.split('/').filter(Boolean).pop() ?? fullPath;
+  }
+
   function renderModalList(kind: 'repos' | 'links'): void {
     const list = kind === 'repos' ? modalRepoList : modalLinkList;
     const values = kind === 'repos' ? modalRepos : modalLinks;
@@ -373,7 +378,8 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
 
       const text = document.createElement('span');
       text.className = kind === 'links' ? 'entry-value clickable' : 'entry-value';
-      text.textContent = value;   // user-supplied: never into innerHTML
+      // A repo row shows the directory name; the full path is the tooltip.
+      text.textContent = kind === 'repos' ? directoryName(value) : value;
       text.title = value;
       if (kind === 'links') {
         text.addEventListener('click', () => { window.api.openUrl(value); });

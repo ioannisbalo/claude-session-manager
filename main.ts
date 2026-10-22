@@ -206,9 +206,14 @@ function createWindow(): void {
   // nothing, so the riskyPaths guard does not apply — a task may legitimately
   // reference any directory.
   ipcMain.handle('dialog:pick-directory', async () => {
+    // Nearly every repo lives here, so start there rather than wherever macOS
+    // last left the picker. Omitted if the directory is missing, which makes
+    // the dialog fall back to its own default.
+    const projectsDir = path.join(os.homedir(), 'Documents', 'projects');
     const result = await dialog.showOpenDialog(win, {
       properties: ['openDirectory'],
       title: 'Choose a repository for this task',
+      ...(fs.existsSync(projectsDir) ? { defaultPath: projectsDir } : {}),
     });
     if (result.canceled || result.filePaths.length === 0) return null;
     return path.resolve(result.filePaths[0]);
