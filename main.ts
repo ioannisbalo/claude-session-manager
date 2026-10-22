@@ -202,6 +202,18 @@ function createWindow(): void {
     return sessionManager!.getBuffer(sessionId);
   });
 
+  // A picker that only returns a path. Unlike session:create this spawns
+  // nothing, so the riskyPaths guard does not apply — a task may legitimately
+  // reference any directory.
+  ipcMain.handle('dialog:pick-directory', async () => {
+    const result = await dialog.showOpenDialog(win, {
+      properties: ['openDirectory'],
+      title: 'Choose a repository for this task',
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return path.resolve(result.filePaths[0]);
+  });
+
   ipcMain.handle('open-url', (_event: IpcMainInvokeEvent, url: string) => {
     if (url.startsWith('https://') || url.startsWith('http://')) {
       shell.openExternal(url);

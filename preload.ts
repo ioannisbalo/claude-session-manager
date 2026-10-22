@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('split-session', (_, direction) => callback(direction));
   },
 
+  pickDirectory: (): Promise<string | null> => ipcRenderer.invoke('dialog:pick-directory'),
   openUrl: (url: string): Promise<void> => ipcRenderer.invoke('open-url', url),
   correctState: (id: string, correctState: string): Promise<void> =>
     ipcRenderer.invoke('session:correct-state', id, correctState),

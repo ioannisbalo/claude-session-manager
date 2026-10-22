@@ -51,6 +51,7 @@ interface ElectronAPI {
   onNavSession(callback: (direction: 'next' | 'prev') => void): void;
   onSplitSession(callback: (direction: 'vertical' | 'horizontal') => void): void;
   openUrl(url: string): Promise<void>;
+  pickDirectory(): Promise<string | null>;
   correctState(id: string, correctState: string): Promise<void>;
   getLogPath(): Promise<string>;
   createSessionAt(cwd: string, options?: { continue?: boolean }): Promise<SessionInfo | null>;
