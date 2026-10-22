@@ -91,8 +91,8 @@ function advanceTaskStatus(task: Task): void {
   TaskLogic.setTaskStatus(task, next, Date.now());
 }
 
-function addTask(status: TaskStatus): Task {
-  return TaskLogic.createTask(appState, '', status, Date.now());
+function createTaskFromModal(title: string, status: TaskStatus, fields: TaskFields): Task {
+  return TaskLogic.createTask(appState, title, status, Date.now(), fields);
 }
 
 function removeTask(taskId: string): void {

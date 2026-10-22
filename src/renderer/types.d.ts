@@ -73,6 +73,15 @@ interface Window {
 
 type TaskStatus = 'backlog' | 'doing' | 'done';
 
+type TaskType = 'feature' | 'bug' | 'chore' | 'review' | 'spike';
+
+interface TaskFields {
+  description?: string;
+  type?: TaskType;
+  repos?: string[];
+  links?: string[];
+}
+
 interface Task {
   id: string;
   title: string;
@@ -81,6 +90,10 @@ interface Task {
   collapsed: boolean;
   createdAt: number;
   completedAt?: number;
+  description?: string;
+  type?: TaskType;
+  repos?: string[];
+  links?: string[];
 }
 
 interface AppState {
@@ -104,7 +117,7 @@ interface SidebarSections {
 }
 
 declare const TaskLogic: {
-  createTask(state: AppState, title: string, status: TaskStatus, now: number): Task;
+  createTask(state: AppState, title: string, status: TaskStatus, now: number, fields?: TaskFields): Task;
   deleteTask(state: AppState, taskId: string): void;
   partitionSidebar(state: AppState, knownSessionIds: Set<string>, runningSessionIds: Set<string>, now: number): SidebarSections;
   DONE_VISIBILITY_MS: number;

@@ -26,6 +26,34 @@
       </div>
     </main>
   </div>
+  <div id="task-modal" hidden>
+    <div id="task-modal-backdrop"></div>
+    <div id="task-modal-panel" role="dialog" aria-modal="true" aria-labelledby="task-modal-heading">
+      <h2 id="task-modal-heading">New task</h2>
+
+      <label for="task-modal-title">Title</label>
+      <input id="task-modal-title" type="text" autocomplete="off">
+
+      <label for="task-modal-description">Description</label>
+      <textarea id="task-modal-description" rows="4"></textarea>
+
+      <label for="task-modal-type">Type</label>
+      <select id="task-modal-type">
+        <option value="">No type</option>
+        <option value="feature">Feature</option>
+        <option value="bug">Bug</option>
+        <option value="chore">Chore</option>
+        <option value="review">Review</option>
+        <option value="spike">Spike</option>
+      </select>
+
+      <div id="task-modal-actions">
+        <button id="task-modal-cancel" type="button">Cancel</button>
+        <button id="task-modal-save" type="button">Save</button>
+      </div>
+    </div>
+  </div>
+
   <script src="../../../node_modules/@xterm/xterm/lib/xterm.js"></script>
   <script src="../../../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
   <script src="../../../node_modules/@xterm/addon-web-links/lib/addon-web-links.js"></script>

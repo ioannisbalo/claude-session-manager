@@ -348,6 +348,98 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
 
   // --- Render ---
 
+  // --- Task detail modal ---
+
+  const modal = document.getElementById('task-modal')!;
+  const modalHeading = document.getElementById('task-modal-heading')!;
+  const modalTitle = document.getElementById('task-modal-title') as HTMLInputElement;
+  const modalDescription = document.getElementById('task-modal-description') as HTMLTextAreaElement;
+  const modalType = document.getElementById('task-modal-type') as HTMLSelectElement;
+  const modalSave = document.getElementById('task-modal-save') as HTMLButtonElement;
+  const modalCancel = document.getElementById('task-modal-cancel') as HTMLButtonElement;
+
+  let modalMode: 'create' | 'edit' = 'create';
+  let modalCreateStatus: TaskStatus = 'backlog';
+
+  function syncModalSaveEnabled(): void {
+    modalSave.disabled = modalTitle.value.trim() === '';
+  }
+
+  function fillModalFields(task: Task | null): void {
+    modalTitle.value = task?.title ?? '';
+    modalDescription.value = task?.description ?? '';
+    modalType.value = task?.type ?? '';
+    syncModalSaveEnabled();
+  }
+
+  function openTaskModal(mode: 'create' | 'edit', context: TaskStatus | Task): void {
+    modalMode = mode;
+    if (mode === 'create') {
+      modalCreateStatus = context as TaskStatus;
+      modalHeading.textContent = 'New task';
+      fillModalFields(null);
+    } else {
+      modalHeading.textContent = 'Edit task';
+      fillModalFields(context as Task);
+    }
+    modal.hidden = false;
+    modalTitle.focus();
+  }
+
+  function closeTaskModal(): void {
+    modal.hidden = true;
+  }
+
+  /** Writes the modal's values. Returns false when the title is blank. */
+  function saveTaskModal(): boolean {
+    const title = modalTitle.value.trim();
+    if (title === '') return false;
+
+    const description = modalDescription.value.trim();
+    const type = modalType.value as TaskType | '';
+
+    if (modalMode === 'create') {
+      createTaskFromModal(title, modalCreateStatus, {
+        ...(description !== '' ? { description } : {}),
+        ...(type !== '' ? { type } : {}),
+      });
+      if (modalCreateStatus === 'backlog') expandBacklog();
+    }
+
+    renderSidebar();
+    scheduleSave();
+    return true;
+  }
+
+  modalSave.addEventListener('click', () => {
+    if (saveTaskModal()) closeTaskModal();
+  });
+  modalCancel.addEventListener('click', closeTaskModal);
+  document.getElementById('task-modal-backdrop')!.addEventListener('click', closeTaskModal);
+
+  modalTitle.addEventListener('input', syncModalSaveEnabled);
+
+  // Enter is bound to the title field only: in the description it must insert a
+  // newline, which a document-level submit handler would steal.
+  modalTitle.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.key !== 'Enter' || e.metaKey) return;
+    e.preventDefault();
+    if (!saveTaskModal()) return;
+    // Create mode stays open, cleared, for the next capture.
+    fillModalFields(null);
+    modalTitle.focus();
+  });
+
+  modal.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeTaskModal();
+    } else if (e.key === 'Enter' && e.metaKey) {
+      e.preventDefault();
+      if (saveTaskModal()) closeTaskModal();
+    }
+  });
+
   const STATUS_BUTTON: Record<TaskStatus, { glyph: string; title: string }> = {
     backlog: { glyph: '▶', title: 'Pick up' },
     doing: { glyph: '✓', title: 'Mark done' },
@@ -369,14 +461,7 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
       add.textContent = '+';
       add.addEventListener('click', (e: MouseEvent) => {
         e.stopPropagation();
-        const task = addTask(createIn);
-        if (createIn === 'backlog') expandBacklog();
-        renderSidebar();
-        // Open the new row's title straight away, so creating a task is:
-        // click +, type, Enter.
-        const row = document.querySelector(`[data-task-id="${task.id}"] .group-name`) as HTMLSpanElement | null;
-        if (row) startTaskRename(task, row);
-        scheduleSave();
+        openTaskModal('create', createIn);
       });
       li.appendChild(add);
     }

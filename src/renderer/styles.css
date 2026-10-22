@@ -608,3 +608,94 @@ body.resizing-sidebar #sidebar-resizer {
 }
 
 body.resizing-sidebar { cursor: col-resize; user-select: none; }
+
+/* Task detail modal. Every rule is scoped to #task-modal — a bare class was
+   outranked by #session-list li once already in this project. */
+#task-modal[hidden] { display: none; }
+
+#task-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#task-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+#task-modal-panel {
+  position: relative;
+  width: min(520px, calc(100vw - 64px));
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  padding: 20px 22px;
+  border-radius: 10px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+  -webkit-app-region: no-drag;
+}
+
+#task-modal-panel h2 {
+  margin: 0 0 14px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+#task-modal-panel label {
+  display: block;
+  margin: 12px 0 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+#task-modal-panel input[type="text"],
+#task-modal-panel textarea,
+#task-modal-panel select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-main, #1e1e2e);
+  color: inherit;
+  font: inherit;
+}
+
+#task-modal-panel textarea { resize: vertical; }
+
+#task-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+#task-modal-actions button {
+  padding: 7px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+#task-modal-save {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1e1e2e;
+  font-weight: 600;
+}
+
+#task-modal-save:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
