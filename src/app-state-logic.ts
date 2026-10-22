@@ -5,6 +5,16 @@
 
 export type TaskStatus = 'backlog' | 'doing' | 'done';
 
+export type TaskType = 'feature' | 'bug' | 'chore' | 'review' | 'spike';
+
+/** The optional metadata a task can carry. Absent means absent, never empty. */
+export interface TaskFields {
+  description?: string;
+  type?: TaskType;
+  repos?: string[];
+  links?: string[];
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -13,6 +23,10 @@ export interface Task {
   collapsed: boolean;
   createdAt: number;
   completedAt?: number;
+  description?: string;
+  type?: TaskType;
+  repos?: string[];
+  links?: string[];
 }
 
 export interface SessionData {
@@ -153,7 +167,13 @@ export function partitionSidebar(
  * attached afterwards, which is what makes a task a todo item rather than a
  * container for sessions that already exist.
  */
-export function createTask(state: AppState, title: string, status: TaskStatus, now: number): Task {
+export function createTask(
+  state: AppState,
+  title: string,
+  status: TaskStatus,
+  now: number,
+  fields: TaskFields = {},
+): Task {
   state.taskCounter++;
   const trimmed = title.trim();
   const task: Task = {
@@ -164,6 +184,12 @@ export function createTask(state: AppState, title: string, status: TaskStatus, n
     collapsed: false,
     createdAt: now,
   };
+  // Assigned only when supplied, so a bare task carries no empty keys.
+  if (fields.description !== undefined) task.description = fields.description;
+  if (fields.type !== undefined) task.type = fields.type;
+  if (fields.repos !== undefined) task.repos = fields.repos;
+  if (fields.links !== undefined) task.links = fields.links;
+
   state.tasks.set(task.id, task);
   return task;
 }
@@ -291,6 +317,12 @@ function toSession(raw: Record<string, unknown>): SavedSession | null {
  * Every field is defaulted, because the only thing a saved file guarantees is
  * that it parsed as JSON — and reconstructFromSaved dereferences sessionIds.
  */
+const TASK_TYPES: readonly string[] = ['feature', 'bug', 'chore', 'review', 'spike'];
+
+function isTaskType(value: unknown): value is TaskType {
+  return typeof value === 'string' && TASK_TYPES.includes(value);
+}
+
 function toTask(raw: Record<string, unknown>, title: unknown, now: number): Task | null {
   const id = raw.id;
   if (typeof id !== 'string' || id === '') return null;
@@ -307,6 +339,10 @@ function toTask(raw: Record<string, unknown>, title: unknown, now: number): Task
     createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : now,
   };
   if (typeof raw.completedAt === 'number') task.completedAt = raw.completedAt;
+  if (typeof raw.description === 'string') task.description = raw.description;
+  if (isTaskType(raw.type)) task.type = raw.type;
+  if (Array.isArray(raw.repos)) task.repos = raw.repos.filter((r): r is string => typeof r === 'string');
+  if (Array.isArray(raw.links)) task.links = raw.links.filter((l): l is string => typeof l === 'string');
   return task;
 }
 

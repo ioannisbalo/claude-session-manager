@@ -20,6 +20,7 @@ import {
   deleteTask,
   partitionSidebar,
   TaskStatus,
+  TaskType,
 } from './app-state-logic';
 
 function createState(overrides?: Partial<AppState>): AppState {
@@ -391,6 +392,17 @@ describe('app-state-logic', () => {
       expect('sidebarOrder' in withOrder).toBe(false);
     });
 
+    it('loads a task saved before the optional fields existed', () => {
+      const pre2d = {
+        version: 2, sessions: [], taskCounter: 1,
+        tasks: [{ id: 't1', title: 'Old', status: 'doing', sessionIds: [], collapsed: false, createdAt: 5 }],
+      };
+      const task = migrateSavedState(pre2d, 9000).tasks[0];
+      expect(task.title).toBe('Old');
+      expect(task.repos ?? []).toEqual([]);
+      expect(task.links ?? []).toEqual([]);
+    });
+
     it('keeps v2 tasks when the version field is missing or unrecognised', () => {
       const v2shape = {
         sessions: [],
@@ -450,6 +462,34 @@ describe('app-state-logic', () => {
       });
       expect(state.tasks.get('task-5')).toBe(task);
       expect(state.taskCounter).toBe(5);
+    });
+
+    it('stores the optional fields when given', () => {
+      const state = createState();
+      const task = createTask(state, 'Fix retry', 'backlog', 1, {
+        description: 'See the thread',
+        type: 'bug',
+        repos: ['/a', '/b'],
+        links: ['https://example.com/1'],
+      });
+      expect(task.description).toBe('See the thread');
+      expect(task.type).toBe('bug');
+      expect(task.repos).toEqual(['/a', '/b']);
+      expect(task.links).toEqual(['https://example.com/1']);
+    });
+
+    it('still falls back to "New task" for a blank title', () => {
+      // The modal disables Save on a blank title, so this is defence in depth —
+      // pinned so it is not removed as dead code.
+      expect(createTask(createState(), '   ', 'backlog', 1).title).toBe('New task');
+    });
+
+    it('omits the optional fields entirely when not given', () => {
+      const task = createTask(createState(), 'Bare', 'backlog', 1);
+      expect('description' in task).toBe(false);
+      expect('type' in task).toBe(false);
+      expect('repos' in task).toBe(false);
+      expect('links' in task).toBe(false);
     });
 
     it('trims the title and falls back when it is blank', () => {
