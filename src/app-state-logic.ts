@@ -194,6 +194,31 @@ export function createTask(
   return task;
 }
 
+/** Set when present, delete when cleared — an emptied field leaves no key. */
+function applyOptionalField<K extends keyof TaskFields>(
+  task: Task,
+  key: K,
+  value: TaskFields[K],
+): void {
+  // Task carries every TaskFields member, so the narrowing is safe; TS cannot
+  // see through the generic key.
+  if (value === undefined) delete task[key];
+  else (task as TaskFields)[key] = value;
+}
+
+/**
+ * Apply an edit to a task in place. Only the title and the optional fields
+ * move: status, collapsed, createdAt, completedAt and sessionIds belong to the
+ * task's lifecycle, not to the form that edits it.
+ */
+export function updateTask(task: Task, title: string, fields: TaskFields): void {
+  task.title = title;
+  applyOptionalField(task, 'description', fields.description);
+  applyOptionalField(task, 'type', fields.type);
+  applyOptionalField(task, 'repos', fields.repos);
+  applyOptionalField(task, 'links', fields.links);
+}
+
 /**
  * Delete a task. Its sessions are orphaned, not killed: "loose" means belonging
  * to no task, so dropping the task is all that is required. Killing a session

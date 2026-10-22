@@ -432,20 +432,40 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
 
   function closeTaskModal(): void {
     modal.hidden = true;
-  }
-
-  /** Set when present, delete when cleared — an emptied field leaves no key. */
-  function applyOptionalField<K extends 'description' | 'type' | 'repos' | 'links'>(
-    task: Task,
-    key: K,
-    value: Task[K] | undefined,
-  ): void {
-    if (value === undefined) delete task[key];
-    else task[key] = value;
+    // Otherwise activeElement is <body> and keystrokes go nowhere until the
+    // user clicks a pane — on the routine path of every create and edit.
+    const focused = paneManager.getFocusedPaneId();
+    if (focused) paneManager.setFocus(focused);
   }
 
   /** Writes the modal's values. Returns false when the title is blank. */
+  /**
+   * Commit a link typed but not yet entered. Returns false when the pending
+   * text is present and unusable — saving would otherwise discard a URL that
+   * is visible on screen at the moment Save is pressed.
+   */
+  function commitPendingLink(): boolean {
+    if (modalLinkInput.hidden) return true;
+    const value = modalLinkInput.value.trim();
+    if (value === '') return true;
+    if (!isOpenableUrl(value)) {
+      modalLinkInput.classList.add('invalid');
+      modalLinkInput.focus();
+      return false;
+    }
+    modalLinks.push(value);
+    modalLinkInput.value = '';
+    modalLinkInput.classList.remove('invalid');
+    renderModalList('links');
+    return true;
+  }
+
+  function isOpenableUrl(value: string): boolean {
+    return value.startsWith('https://') || value.startsWith('http://');
+  }
+
   function saveTaskModal(): boolean {
+    if (!commitPendingLink()) return false;
     const title = modalTitle.value.trim();
     if (title === '') return false;
 
@@ -460,13 +480,14 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
         ...(modalLinks.length > 0 ? { links: [...modalLinks] } : {}),
       });
       if (modalCreateStatus === 'backlog') expandBacklog();
-    } else if (modalEditTarget) {
-      const task = modalEditTarget;
-      task.title = title;
-      applyOptionalField(task, 'description', description !== '' ? description : undefined);
-      applyOptionalField(task, 'type', type !== '' ? type : undefined);
-      applyOptionalField(task, 'repos', modalRepos.length > 0 ? [...modalRepos] : undefined);
-      applyOptionalField(task, 'links', modalLinks.length > 0 ? [...modalLinks] : undefined);
+    } else {
+      if (!modalEditTarget) return false;   // never silently report a save that wrote nothing
+      updateTaskFromModal(modalEditTarget, title, {
+        ...(description !== '' ? { description } : {}),
+        ...(type !== '' ? { type } : {}),
+        ...(modalRepos.length > 0 ? { repos: [...modalRepos] } : {}),
+        ...(modalLinks.length > 0 ? { links: [...modalLinks] } : {}),
+      });
     }
 
     renderSidebar();
@@ -495,14 +516,14 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
       modalLinkInput.classList.remove('invalid');
       return;
     }
-    if (e.key !== 'Enter') return;
+    if (e.key !== 'Enter' || e.metaKey) return;   // Cmd+Enter saves from any field
     e.preventDefault();
     e.stopPropagation();
 
     const value = modalLinkInput.value.trim();
     // open-url silently ignores anything else, so a stored ftp:// row would
     // look saved and do nothing. Refuse it here instead.
-    if (!value.startsWith('https://') && !value.startsWith('http://')) {
+    if (!isOpenableUrl(value)) {
       modalLinkInput.classList.add('invalid');
       return;
     }
@@ -535,7 +556,12 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
     modalTitle.focus();
   });
 
-  modal.addEventListener('keydown', (e: KeyboardEvent) => {
+  // Bound to document, not the modal: hiding the link input and re-rendering a
+  // list both remove the focused element, dropping activeElement to <body>, and
+  // a subtree listener would then never fire. Only Escape and Cmd+Enter match,
+  // so a plain Enter in the description is still native.
+  document.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (modal.hidden) return;
     if (e.key === 'Escape') {
       e.preventDefault();
       closeTaskModal();

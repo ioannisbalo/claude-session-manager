@@ -17,6 +17,7 @@ import {
   migrateSavedState,
   SAVED_STATE_VERSION,
   createTask,
+  updateTask,
   deleteTask,
   partitionSidebar,
   TaskStatus,
@@ -496,6 +497,48 @@ describe('app-state-logic', () => {
       const state = createState();
       expect(createTask(state, '  spaced  ', 'doing', 0).title).toBe('spaced');
       expect(createTask(state, '   ', 'doing', 0).title).toBe('New task');
+    });
+  });
+
+  describe('updateTask', () => {
+    function seeded(): Task {
+      const state = createState();
+      const task = createTask(state, 'Before', 'doing', 100, {
+        description: 'old', type: 'bug', repos: ['/a'], links: ['https://a'],
+      });
+      task.sessionIds = ['s1'];
+      task.collapsed = true;
+      setTaskStatus(task, 'done', 500);
+      return task;
+    }
+
+    it('writes the title and the supplied fields', () => {
+      const task = seeded();
+      updateTask(task, 'After', { description: 'new', type: 'chore', repos: ['/b'], links: ['https://b'] });
+      expect(task.title).toBe('After');
+      expect(task.description).toBe('new');
+      expect(task.type).toBe('chore');
+      expect(task.repos).toEqual(['/b']);
+      expect(task.links).toEqual(['https://b']);
+    });
+
+    it('deletes a field that was cleared, rather than storing an empty value', () => {
+      const task = seeded();
+      updateTask(task, 'After', {});
+      expect('description' in task).toBe(false);
+      expect('type' in task).toBe(false);
+      expect('repos' in task).toBe(false);
+      expect('links' in task).toBe(false);
+    });
+
+    it('leaves status, collapsed, createdAt, completedAt and sessionIds untouched', () => {
+      const task = seeded();
+      updateTask(task, 'After', { description: 'new' });
+      expect(task.status).toBe('done');
+      expect(task.collapsed).toBe(true);
+      expect(task.createdAt).toBe(100);
+      expect(task.completedAt).toBe(500);
+      expect(task.sessionIds).toEqual(['s1']);
     });
   });
 

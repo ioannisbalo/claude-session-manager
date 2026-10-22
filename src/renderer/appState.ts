@@ -95,6 +95,10 @@ function createTaskFromModal(title: string, status: TaskStatus, fields: TaskFiel
   return TaskLogic.createTask(appState, title, status, Date.now(), fields);
 }
 
+function updateTaskFromModal(task: Task, title: string, fields: TaskFields): void {
+  TaskLogic.updateTask(task, title, fields);
+}
+
 function removeTask(taskId: string): void {
   TaskLogic.deleteTask(appState, taskId);
 }
