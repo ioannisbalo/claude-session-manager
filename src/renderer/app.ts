@@ -255,9 +255,16 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
     li.dataset.sessionId = id;
     li.innerHTML = `
       <span class="status-dot ${session.status}"></span>
-      <span class="session-name" title="${session.cwd}">${session.name}</span>
+      <span class="session-name"></span>
       <button class="session-close" title="Close session">&times;</button>
     `;
+
+    // Via textContent, never the template: a name containing '<' would
+    // otherwise swallow the rest of the row and the querySelectors below
+    // would return null.
+    const nameEl = li.querySelector('.session-name') as HTMLSpanElement;
+    nameEl.textContent = session.name;
+    nameEl.title = session.cwd;
 
     const statusDot = li.querySelector('.status-dot') as HTMLElement;
     statusDot.addEventListener('click', (e: MouseEvent) => {
@@ -384,13 +391,17 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
     const btn = STATUS_BUTTON[task.status];
     header.innerHTML = `
       <span class="group-collapse-icon">${task.collapsed ? '▸' : '▾'}</span>
-      <span class="group-name">${task.title}</span>
+      <span class="group-name"></span>
       <button class="task-status-btn" title="${btn.title}">${btn.glyph}</button>
       <button class="task-session-btn" title="New session for this task">+</button>
       <button class="group-rename-btn" title="Rename task">✎</button>
       <button class="task-delete-btn" title="Delete task (sessions are kept)">&times;</button>
       <span class="group-count">${task.sessionIds.length || ''}</span>
     `;
+
+    // Same reason as the session name: titles are user-typed and persisted, so
+    // one containing '<' would break every render from then on.
+    (header.querySelector('.group-name') as HTMLSpanElement).textContent = task.title;
 
     (header.querySelector('.task-status-btn') as HTMLElement).addEventListener('click', (e: MouseEvent) => {
       e.stopPropagation();
