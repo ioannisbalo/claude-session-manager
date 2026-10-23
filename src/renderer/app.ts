@@ -590,14 +590,19 @@ document.getElementById('new-session-btn')!.addEventListener('click', createNewS
     if (task.type) header.dataset.taskType = task.type;
 
     const btn = STATUS_BUTTON[task.status];
+    // The status button is LAST on purpose. The row is right-packed, so an
+    // element's distance from the right edge depends only on what follows it:
+    // with the hover-only buttons after it, revealing them shifted the status
+    // button left just as the cursor arrived, and a fast click landed on the
+    // wrong control. Nothing follows it now, so it never moves.
     header.innerHTML = `
       <span class="group-collapse-icon">${task.collapsed ? '▸' : '▾'}</span>
       <span class="group-name"></span>
-      <button class="task-status-btn" title="${btn.title}">${btn.glyph}</button>
+      <span class="group-count">${task.sessionIds.length || ''}</span>
       <button class="task-session-btn" title="New session for this task">+</button>
       <button class="group-rename-btn" title="Rename task">✎</button>
       <button class="task-delete-btn" title="Delete task (sessions are kept)">&times;</button>
-      <span class="group-count">${task.sessionIds.length || ''}</span>
+      <button class="task-status-btn" title="${btn.title}">${btn.glyph}</button>
     `;
 
     // Same reason as the session name: titles are user-typed and persisted, so
