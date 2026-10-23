@@ -3,7 +3,7 @@
 // The algorithms live in src/app-state-logic.ts, bundled to app-state-logic.js
 // and loaded as the `TaskLogic` global (see index.html). This file holds only
 // the renderer's single state object and the impure parts that module cannot
-// own: the pane layout and async session re-creation over IPC.
+// own: async session re-creation over IPC.
 const appState: AppState = {
   tasks: new Map(),
   taskCounter: 0,
@@ -110,9 +110,8 @@ function attachSessionToTask(sessionId: string, taskId: string): void {
 
 // --- State persistence ---
 
-function buildSavedState(pm: PaneManager): string {
-  const core = TaskLogic.buildSavedState(sessions, appState);
-  return JSON.stringify({ ...core, layout: pm.serializeLayout() });
+function buildSavedState(): string {
+  return JSON.stringify(TaskLogic.buildSavedState(sessions, appState));
 }
 
 let saveTimeout: number | undefined;
@@ -126,7 +125,7 @@ function initScheduleSave(impl: () => void): void {
   scheduleSaveImpl = impl;
 }
 
-async function restoreState(pm: PaneManager): Promise<boolean> {
+async function restoreState(): Promise<boolean> {
   const raw = await window.api.loadState();
   if (!raw) return false;
 
@@ -153,10 +152,6 @@ async function restoreState(pm: PaneManager): Promise<boolean> {
   const restored = TaskLogic.reconstructFromSaved(saved, idMap);
   appState.tasks = restored.tasks;
   appState.taskCounter = restored.taskCounter;
-
-  if (saved.layout) {
-    pm.restoreLayout(saved.layout as SerializedLayout, idMap);
-  }
 
   return sessions.size > 0;
 }

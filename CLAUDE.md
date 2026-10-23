@@ -20,7 +20,7 @@ Tests use Vitest. Test files are co-located with source (`src/*.test.ts`). No li
 - `src/app-state-logic.test.ts` — Pure logic tests for the task model: section partitioning and ordering, status transitions and the 24h done window, session attach/detach, saved-state versioning and the v1→v2 migration
 - `src/session-manager.test.ts` — SessionManager tests with mocked PTY and TransitionLogger (buffer management, write guards, kill/cleanup, state detection integration)
 
-`src/app-state-logic.ts` is the **single implementation** of the task/sidebar state logic, and the only part of the renderer path with tests. It is bundled by esbuild to `dist/src/renderer/app-state-logic.js` as the `TaskLogic` IIFE global; `src/renderer/appState.ts` holds thin wrappers over it plus the impure parts the pure module cannot own (pane layout, async session re-creation over IPC). Do not re-implement an algorithm in the renderer — a second copy is what Phase 2b removed.
+`src/app-state-logic.ts` is the **single implementation** of the task/sidebar state logic, and the only part of the renderer path with tests. It is bundled by esbuild to `dist/src/renderer/app-state-logic.js` as the `TaskLogic` IIFE global; `src/renderer/appState.ts` holds thin wrappers over it plus the impure parts the pure module cannot own (async session re-creation over IPC). Do not re-implement an algorithm in the renderer — a second copy is what Phase 2b removed.
 
 ### Debugging state detection
 
@@ -69,9 +69,10 @@ Context-isolated bridge (`window.api`). Invoke channels: `session:create`, `sess
 ## Key Design Decisions
 
 - State detection is heuristic (screen parsing via headless terminal emulation), not message-based. Claude Code draws its TUI with cursor positioning rather than newlines, so regexing the raw stream cannot recover line structure — patterns must run against emulated screen rows.
-- Renderer uses no bundler except for the one `TaskLogic` bundle. Script load order in index.html matters: xterm.js → addon-fit.js → addon-web-links.js → layoutTree.js → terminal.js → paneManager.js → **app-state-logic.js** → appState.js → app.js.
+- Renderer uses no bundler except for the one `TaskLogic` bundle. Script load order in index.html matters: xterm.js → addon-fit.js → addon-web-links.js → terminal.js → **app-state-logic.js** → appState.js → app.js.
 - The renderer's files share globals with no `import` edges, so `tsc` has no dependency graph for them: editing one can leave a dependent's cached result stale and the build will report success on code that cannot compile. `npm run build` therefore uses `tsc --build --force` (a full rebuild is ~0.4s).
 - `src/renderer/types.d.ts` declares the `TaskLogic` shape by hand, since the renderer cannot import. If it drifts from the module, `tsc` fails at a call site — a deliberate trade to avoid duplicating logic.
 - User-typed text (task titles, session names) is set via `textContent`, never interpolated into `innerHTML`: a `<` would swallow the rest of the row and the following `querySelector` calls would return null.
 - The renderer has **no tests**. Its gate is `npm run build` plus running the app.
+- One terminal, not a split view. A single `TerminalWrapper` is bound to the active session and rebound by `switchTo` on every switch. Tiled panes existed until 2026-10-23 and were removed: concurrent agent sessions are something you *monitor* rather than read side by side, and the sidebar's status dots plus notifications already do that. `git show 6bd56e9` has the pane implementation if it is ever wanted back.
 - Session buffers are replayed on switch, so scrollback is preserved across tab changes.

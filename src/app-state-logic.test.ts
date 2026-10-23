@@ -368,19 +368,6 @@ describe('app-state-logic', () => {
       expect(twice).toEqual(once);
     });
 
-    it('carries an opaque layout field through migration', () => {
-      const layout = { type: 'split', ratio: 0.5, a: { paneId: 'p1' }, b: { paneId: 'p2' } };
-      expect(migrateSavedState({ ...v1, layout }, 9000).layout).toEqual(layout);
-
-      // and on an already-v2 file
-      const v2 = { version: 2, sessions: [], tasks: [], sidebarOrder: [], taskCounter: 0, layout };
-      expect(migrateSavedState(v2, 9000).layout).toEqual(layout);
-    });
-
-    it('omits layout entirely when the saved file has none', () => {
-      expect('layout' in migrateSavedState(v1, 9000)).toBe(false);
-    });
-
     it('drops malformed array elements instead of throwing', () => {
       expect(() => migrateSavedState({ groups: [null] }, 9000)).not.toThrow();
       expect(migrateSavedState({ groups: [null, 5, 'x'] }, 9000).tasks).toEqual([]);

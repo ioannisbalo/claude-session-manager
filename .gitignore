@@ -33,3 +33,6 @@ yarn-error.log*
 
 # Claude
 .claude/
+
+# Packaged app (electron-packager/forge)
+out/

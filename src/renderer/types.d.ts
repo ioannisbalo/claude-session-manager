@@ -49,7 +49,6 @@ interface ElectronAPI {
   onNewSession(callback: () => void): void;
   onSwitchSession(callback: (id: string) => void): void;
   onNavSession(callback: (direction: 'next' | 'prev') => void): void;
-  onSplitSession(callback: (direction: 'vertical' | 'horizontal') => void): void;
   openUrl(url: string): Promise<void>;
   pickDirectory(): Promise<string | null>;
   correctState(id: string, correctState: string): Promise<void>;

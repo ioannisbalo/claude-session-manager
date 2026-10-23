@@ -29,9 +29,6 @@ contextBridge.exposeInMainWorld('api', {
   onNavSession: (callback: (direction: 'next' | 'prev') => void): void => {
     ipcRenderer.on('nav-session', (_, direction) => callback(direction));
   },
-  onSplitSession: (callback: (direction: 'vertical' | 'horizontal') => void): void => {
-    ipcRenderer.on('split-session', (_, direction) => callback(direction));
-  },
 
   pickDirectory: (): Promise<string | null> => ipcRenderer.invoke('dialog:pick-directory'),
   openUrl: (url: string): Promise<void> => ipcRenderer.invoke('open-url', url),

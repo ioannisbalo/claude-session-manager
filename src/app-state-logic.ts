@@ -42,13 +42,6 @@ export interface SavedState {
   sessions: Array<{ id: string; name: string; cwd: string }>;
   tasks: Task[];
   taskCounter: number;
-  /**
-   * The renderer's serialized pane layout, carried opaquely. This module has no
-   * business knowing what a layout is, but it must not drop the field on the
-   * floor during migration — doing so loses the user's split-pane arrangement
-   * on every load.
-   */
-  layout?: unknown;
 }
 
 export interface AppState {
@@ -398,12 +391,10 @@ export function migrateSavedState(raw: unknown, now: number): SavedState {
 
   const counter = isV1 ? raw.groupCounter : raw.taskCounter;
 
-  const migrated: SavedState = {
+  return {
     version: SAVED_STATE_VERSION,
     sessions: asRecords(raw.sessions).map(toSession).filter(notNull),
     tasks,
     taskCounter: typeof counter === 'number' ? counter : 0,
   };
-  if (raw.layout !== undefined) migrated.layout = raw.layout;
-  return migrated;
 }

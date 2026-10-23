@@ -1,8 +1,5 @@
-// One TerminalWrapper owns exactly one xterm instance bound to one session.
-// The PaneManager creates one wrapper per visible pane. Wrappers are NOT
-// responsible for document-level concerns (file drag/drop) — with multiple
-// wrappers those listeners would fire once per instance. The PaneManager owns
-// any document-level handling.
+// One TerminalWrapper owns the single xterm instance. It is bound to whichever
+// session is active, and switchTo rebinds it, replaying that session's buffer.
 class TerminalWrapper {
   private container: HTMLElement;
   private terminal: Terminal;
@@ -10,13 +7,12 @@ class TerminalWrapper {
   private _resizeObserver: ResizeObserver;
   private onInputCallback: ((sessionId: string, data: string) => void) | null = null;
   private onResizeCallback: ((sessionId: string, cols: number, rows: number) => void) | null = null;
-  private onFocusCallback: ((sessionId: string) => void) | null = null;
 
-  readonly sessionId: string;
+  /** The session currently bound to this terminal; empty before the first switch. */
+  sessionId = '';
 
-  constructor(container: HTMLElement, sessionId: string) {
+  constructor(container: HTMLElement) {
     this.container = container;
-    this.sessionId = sessionId;
 
     this.terminal = new Terminal({
       theme: {
@@ -66,14 +62,9 @@ class TerminalWrapper {
     this.fit();
 
     this.terminal.onData((data: string) => {
-      if (this.onInputCallback) {
+      if (this.onInputCallback && this.sessionId !== '') {
         this.onInputCallback(this.sessionId, data);
       }
-    });
-
-    // Notify the manager when this pane gains focus (click / keyboard focus).
-    container.addEventListener('focusin', () => {
-      if (this.onFocusCallback) this.onFocusCallback(this.sessionId);
     });
 
     this._resizeObserver = new ResizeObserver(() => this.fit());
@@ -83,7 +74,7 @@ class TerminalWrapper {
   fit(): void {
     try {
       this.fitAddon.fit();
-      if (this.onResizeCallback) {
+      if (this.onResizeCallback && this.sessionId !== '') {
         this.onResizeCallback(this.sessionId, this.terminal.cols, this.terminal.rows);
       }
     } catch {
@@ -99,15 +90,17 @@ class TerminalWrapper {
     this.onInputCallback = callback;
   }
 
-  onFocus(callback: (sessionId: string) => void): void {
-    this.onFocusCallback = callback;
-  }
-
   getDimensions(): { cols: number; rows: number } {
     return { cols: this.terminal.cols, rows: this.terminal.rows };
   }
 
-  /** Replay a session's scrollback into this pane (used on initial mount). */
+  /** Bind to a session and replay its scrollback. */
+  switchTo(sessionId: string, buffer: string): void {
+    this.sessionId = sessionId;
+    this.load(buffer);
+  }
+
+  /** Replay a session's scrollback. */
   load(buffer: string): void {
     this.terminal.clear();
     this.terminal.reset();
