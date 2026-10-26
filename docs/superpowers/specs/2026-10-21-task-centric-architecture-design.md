@@ -145,13 +145,14 @@ scope here.
    type, repos and links. Comes before Phase 3 because it is the surface that
    phase's metadata is entered through. See
    `2026-10-22-task-detail-modal-design.md`
-3. **Repos on a task + worktree creation**
+3. **Repos on a task + worktree creation** — see
+   `2026-10-26-worktrees-and-repos-design.md`
 4. **Worktree lifecycle** — branch, PR, prune. The unglamorous part that decides
    usability; creation without pruning is a mess generator
 5. **State detection** — *deferred, not sequenced.* The current heuristic works;
    findings are recorded below so the decision is not re-litigated. Independent of
    every other phase
-6. **Jira linkage** — store the ticket key on the task; link, never duplicate
+6. **Issue-tracker linkage** — the task carries a vendor-neutral `ticketKey` (added in Phase 3) and links out; the app never talks to a tracker itself
 
 ### Captured, not yet designed
 
