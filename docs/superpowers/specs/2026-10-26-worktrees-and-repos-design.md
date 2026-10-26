@@ -100,18 +100,38 @@ for each repo on the task:
   git worktree add <root>/<task-id>-<branch>/<repo-name> -b <branch> origin/HEAD
 
 then, only if every repo succeeded:
-  spawn one session per worktree, cwd = that worktree
+  spawn ONE session with cwd = <root>/<task-id>-<branch>/
 ```
+
+### One session at the task root, not one per repo
+
+The task's worktree directory is already a parent containing every repo's tree,
+so a single session there sees all of them as subdirectories. This matches how
+multi-repo work is actually done here — one session at the parent, working
+across repos from it — and it is the only arrangement that lets a change
+spanning repos be reasoned about at all: an API contract and its consumer need
+one context that can see both, where per-repo sessions each see half.
+
+It also means a task has one session in the common case, which is why the split
+view had so little to tile.
+
+`+ session` on a task that already has worktrees adds a further session at the
+same root, for when a second line of work genuinely wants its own context.
+
+**Known cost:** every task is a new directory, so Claude Code resolves it as a
+new project and per-project `settings.local.json` allowances do not carry over —
+permission prompts recur per task. Enterprise managed settings cover the bulk,
+so this is the thin local layer on top. Seeding the task root from a template is
+the fix if it becomes annoying; not worth doing before it does.
+
+Per-repo `CLAUDE.md` is still picked up when the session works inside that
+repo's subdirectory; it is simply not loaded at startup.
 
 Sessions spawn with **no initial prompt** in this phase. Feeding the task's
 description in as the opening message is the natural next step and is recorded
 in the parent spec, but it is a separate decision — argv versus injection, and
-what a description that was written as a note rather than an instruction does to
-a session — and bundling it here would hide that behind a worktree feature.
-
-Each session takes its name from its worktree's repo directory, so a three-repo
-task reads as three named sessions nested under it rather than three identical
-rows.
+what a description written as a note rather than an instruction does to a
+session — and bundling it here would hide that behind a worktree feature.
 
 **Branch name:** `<ticketKey>-<slug>` when the key is set, `<slug>` when not. The
 same name in every repo, so the resulting MRs read as one change.
@@ -121,10 +141,16 @@ by a single `-`, leading and trailing `-` trimmed, truncated to 40 characters at
 a `-` boundary. This is also what keeps the name a legal git ref — no spaces,
 no `..`, no `~^:?*[`, no trailing `.lock`.
 
-**All-or-nothing.** Worktrees are created for every repo before any session
-spawns. If one fails, the ones created in that attempt are removed and the task
-is left as it was. A half-created task — two repos ready, one not — is worse
-than a clear failure, because the half is invisible until it confuses you later.
+**All-or-nothing, and loud.** Worktrees are created for every repo before the
+session spawns. If one fails, the trees created in that attempt are removed, no
+session is started, and the failure is reported plainly — naming the repo and
+the reason. A half-created task is worse than a clear failure, because the half
+is invisible until it confuses you later.
+
+**`git fetch` runs every time.** It is a network round-trip per repo before
+anything opens, which is a visible wait on a slow connection, but branching from
+a stale `origin/HEAD` is the kind of error you only notice days later in a
+diff.
 
 ## Data model
 
